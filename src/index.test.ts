@@ -1,4 +1,3 @@
-import "dotenv/config";
 import { Db, MongoClient, ObjectId } from "mongodb";
 import { z } from "zod";
 import { zEmbeddedSchema } from "./helpers/zEmbeddedSchema";
