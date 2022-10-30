@@ -13,6 +13,7 @@ import {
   ZCollectionModelName,
   ZCollectionUnbranded,
 } from "../types/ZCollectionDefinition";
+import { ZDocumentReference } from "../types/ZDocumentReference";
 import { zObjectId } from "./zObjectId";
 // import { ZEmbeddedSchema } from "../types/ZEmbeddedSchema";
 
@@ -49,8 +50,9 @@ type DefNameBrand<DefName extends string> = {
 
 function schemaWrapper<
   Schema extends z.ZodSchema,
-  Definition extends ZCollectionDefinition<any, z.ZodSchema>
->(schema: Schema) {
+  Definition extends ZCollectionDefinition<any, z.ZodSchema>,
+  Mask extends Record<string, true | undefined>
+>(schema: Schema, definition: Definition, mask?: Mask) {
   class ZSchemaWrapper extends ZodType<
     Schema["_output"] & DefNameBrand<ZCollectionModelName<Definition>>,
     ZodBrandedDef<Schema>,
@@ -66,10 +68,18 @@ function schemaWrapper<
       });
     }
   }
-  return new ZSchemaWrapper({
-    type: schema,
-    typeName: z.ZodFirstPartyTypeKind.ZodBranded,
-  });
+  return z
+    .union([
+      zObjectId(),
+      new ZSchemaWrapper({
+        type: schema,
+        typeName: z.ZodFirstPartyTypeKind.ZodBranded,
+      }),
+    ])
+    .transform((data: { _id: ObjectId } | ObjectId) => {
+      const id = data instanceof ObjectId ? data : data._id;
+      return new ZDocumentReference(id, definition, data, mask ?? "full");
+    });
 }
 
 export const zEmbeddedSchema = {
@@ -78,14 +88,17 @@ export const zEmbeddedSchema = {
   ) => {
     const unbrandedSchema =
       definition.schema.unwrap() as ZCollectionUnbranded<Definition>;
-    return schemaWrapper<typeof unbrandedSchema, Definition>(unbrandedSchema);
+    return schemaWrapper<typeof unbrandedSchema, Definition, {}>(
+      unbrandedSchema,
+      definition
+    );
   },
   partial: <
     Definition extends ZCollectionDefinition<any, z.AnyZodObject>,
     Mask extends {
       [key in keyof Omit<
         RemoveBrand<Definition["schema"]>["shape"],
-        "_id" | "_type"
+        "_id"
       >]?: true;
     }
   >(
@@ -95,23 +108,28 @@ export const zEmbeddedSchema = {
     type S = ZCollectionUnbranded<Definition>;
     const unbrandedSchema = definition.schema.unwrap() as S;
     const partialSchema = unbrandedSchema.pick(
-      Object.assign(mask, { _id: true, _type: true })
+      Object.assign(mask, { _id: true })
     ) as ZodObject<
-      Pick<S["shape"], Extract<keyof S["shape"], keyof Mask> | "_id" | "_type">,
+      Pick<S["shape"], Extract<keyof S["shape"], keyof Mask> | "_id">,
       any,
       any
     >;
-    return schemaWrapper<typeof partialSchema, Definition>(partialSchema);
+    return schemaWrapper<typeof partialSchema, Definition, Mask>(
+      partialSchema,
+      definition,
+      mask
+    );
   },
-  ref: <Definition extends ZCollectionDefinition<any, z.AnyZodObject>>(
+  ref: <Definition extends ZCollectionDefinition<any, z.ZodSchema>>(
     definition: Definition
   ) => {
-    const unbrandedSchema =
-      definition.schema.unwrap() as ZCollectionUnbranded<Definition>;
-    const refSchema = unbrandedSchema.pick({
-      _id: true,
-    }) as ZodObject<{ _id: z.ZodString }, any, any>;
-    return schemaWrapper<typeof refSchema, Definition>(refSchema);
+    const refSchema = z.object({
+      _id: zObjectId(),
+    });
+    return schemaWrapper<typeof refSchema, Definition, {}>(
+      refSchema,
+      definition
+    );
   },
 };
 

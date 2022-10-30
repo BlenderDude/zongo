@@ -10,20 +10,13 @@ import {
 import { ZDocumentReference } from "./ZDocumentReference";
 import { createZLazyDocument } from "./ZLazyDocument";
 
-type ZCollectionReference<DefName extends string> = {
-  _id: ObjectId;
-  def: DefName;
-};
-
 type CreateDocumentParam<
   Definitions extends DefinitionsType,
   Def extends keyof Definitions
 > = RemoveZDefinitions<
-  Omit<z.infer<ZCollectionBranded<Definitions[Def]>>, typeof BRAND>,
+  Omit<z.input<ZCollectionBranded<Definitions[Def]>>, typeof BRAND>,
   {
-    [DefName in keyof Definitions]: DefName extends string
-      ? ZCollectionReference<DefName>
-      : never;
+    [DefName in keyof Definitions]: ObjectId;
   }
 >;
 
@@ -53,68 +46,33 @@ export class ZDatabase<Definitions extends DefinitionsType = {}> {
   getCollection<DefName extends keyof Definitions>(
     defName: DefName
   ): ZCollection<Definitions[DefName]> {
-    const collection = this.definitions.get(defName);
-    if (!collection) {
+    const definition = this.definitions.get(defName) as
+      | Definitions[DefName]
+      | undefined;
+    if (!definition) {
       throw new Error(`Collection ${String(defName)} not found`);
     }
-    return this.db.collection(collection.collection);
+    return new ZCollection<Definitions[DefName]>(
+      definition,
+      this.db.collection(definition.modelName)
+    );
   }
 
   async create<Def extends keyof Definitions>(
     def: Def,
-    data:
-      | CreateDocumentParam<Definitions, Def>
-      | ((helpers: {
-          createRef<T extends string>(
-            _id: ObjectId,
-            def: T
-          ): ZDocumentReference<Definitions, T>;
-        }) => CreateDocumentParam<Definitions, Def>)
-  ): Promise<z.infer<ZCollectionBranded<Definitions[Def]>>> {
-    const definition = this.definitions.get(def);
+    data: CreateDocumentParam<Definitions, Def>
+  ) {
+    type Definition = Definitions[Def];
+    const definition = this.definitions.get(def) as Definition | undefined;
     if (!definition) {
       throw new Error(`Collection ${String(def)} not found`);
     }
-    const resolveReferences = async (input: any): Promise<any> => {
-      if (input instanceof ZDocumentReference) {
-        const doc = await this.getCollection(input.def).findOne({
-          _id: input._id,
-        });
-        if (!doc) {
-          throw new Error("Document not found");
-        }
-        return doc;
-      }
-      if (Array.isArray(input)) {
-        return Promise.all(input.map(resolveReferences));
-      }
-      if (
-        typeof input === "object" &&
-        input !== null &&
-        input.constructor === Object
-      ) {
-        const result: any = {};
-        await Promise.all(
-          Object.entries(input).map(async ([key, value]) => {
-            result[key] = await resolveReferences(value);
-          })
-        );
-        return result;
-      }
-      return input;
-    };
-    const createRef = <T extends string>(
-      _id: ObjectId,
-      def: T
-    ): ZDocumentReference<Definitions, T> => {
-      return new ZDocumentReference(_id, def);
-    };
-    const resolvedData = await resolveReferences(
-      typeof data === "function" ? data({ createRef }) : data
-    );
-    const result = definition.schema.parse(resolvedData);
-    await this.getCollection(def).insertOne(result);
-    return result;
+    type Result = z.output<ZCollectionBranded<Definition>>;
+
+    const result = definition.schema.parse(data) as Result;
+    const resolvedData = await this.resolveReferences<Result>(result);
+    await this.getCollection(def).collection.insertOne(resolvedData as any);
+    return resolvedData;
   }
 
   findOneLazy<Def extends keyof Definitions>(def: Def, id: ObjectId) {
@@ -129,13 +87,40 @@ export class ZDatabase<Definitions extends DefinitionsType = {}> {
     );
   }
 
-  // hydrate<Def extends keyof Definitions>(
-  //   doc: z.infer<ZCollectionBranded<Definitions[Def]>>
-  // ): z.infer<ZCollectionBranded<Definitions[Def]>> {
-  //   const definition = this.definitions.get(doc[BRAND]);
-  //   if (!definition) {
-  //     throw new Error(`Collection ${String(doc[BRAND])} not found`);
-  //   }
-  //   return definition.schema.parse(doc);
-  // }
+  async resolveReferences<Input>(
+    input: Input
+  ): Promise<ResolveZReferences<Input>> {
+    if (input instanceof ZDocumentReference) {
+      return input.resolve(this as any) as any;
+    }
+    if (Array.isArray(input)) {
+      return Promise.all(input.map(this.resolveReferences)) as any;
+    }
+    if (
+      typeof input === "object" &&
+      input !== null &&
+      input.constructor === Object
+    ) {
+      const result: any = {};
+      await Promise.all(
+        Object.entries(input).map(async ([key, value]) => {
+          result[key] = await this.resolveReferences(value);
+        })
+      );
+      return result;
+    }
+    return input as any;
+  }
 }
+
+export type ResolveZReferences<T> = T extends ZDocumentReference<infer Def, any>
+  ? z.input<ZCollectionBranded<Def>>
+  : T extends ObjectId | Buffer | Date
+  ? T
+  : T extends Array<infer U>
+  ? Array<ResolveZReferences<U>>
+  : T extends object
+  ? {
+      [K in keyof T]: ResolveZReferences<T[K]>;
+    }
+  : T;

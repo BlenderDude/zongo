@@ -1,7 +1,11 @@
 import { Db, MongoClient, ObjectId } from "mongodb";
 import { z } from "zod";
-import { zEmbeddedSchema } from "./helpers/zEmbeddedSchema";
-import { ZCollectionDefinition, ZDatabase, zObjectId } from "./zongo";
+import {
+  ZCollectionDefinition,
+  ZDatabase,
+  zObjectId,
+  zEmbeddedSchema,
+} from "./zongo";
 
 function createZdb(db: Db) {
   const userDefinition = new ZCollectionDefinition(
@@ -83,7 +87,8 @@ describe("create", () => {
     await zdb.create("Post", expectedPost);
 
     const post = await zdb.getCollection("Post").findOne({ name: "Post 1" });
-    expect(post).toEqual(expectedPost);
+    const rPost = await zdb.resolveReferences(post);
+    expect(rPost).toEqual(expectedPost);
     const user = await zdb.getCollection("User").findOne({ name: "Daniel" });
     expect(user).toEqual(expectedUser);
   });
@@ -111,24 +116,40 @@ describe("create", () => {
       .findOne({ _type: "b" });
     expect(b).toEqual(expectedB);
   });
-  it("creates reference to discriminated union", async () => {
-    const zdb = createZdb(db);
-    const expectedA = {
-      _id: new ObjectId(),
-      _type: "a" as const,
-      a: "a",
-    };
-    const a = await zdb.create("DiscriminatedUnion", expectedA);
-
-    const res = await zdb.create(
-      "RefToDiscriminatedUnion",
-      ({ createRef }) => ({
+  describe("discriminated unions", () => {
+    it("creates _id reference", async () => {
+      const zdb = createZdb(db);
+      const expectedA = {
         _id: new ObjectId(),
-        testRef: createRef(a._id, "DiscriminatedUnion"),
-      })
-    );
+        _type: "a" as const,
+        a: "a",
+      };
+      const a = await zdb.create("DiscriminatedUnion", expectedA);
 
-    expect(expectedA).toEqual(a);
-    expect(res.testRef).toEqual(a);
+      const res = await zdb.create("RefToDiscriminatedUnion", {
+        _id: new ObjectId(),
+        testRef: a._id,
+      });
+
+      expect(expectedA).toEqual(a);
+      expect(res.testRef).toEqual(a);
+    });
+    it("creates full reference", async () => {
+      const zdb = createZdb(db);
+      const expectedA = {
+        _id: new ObjectId(),
+        _type: "a" as const,
+        a: "a",
+      };
+      const a = await zdb.create("DiscriminatedUnion", expectedA);
+
+      const res = await zdb.create("RefToDiscriminatedUnion", {
+        _id: new ObjectId(),
+        testRef: a,
+      });
+
+      expect(expectedA).toEqual(a);
+      expect(res.testRef).toEqual(a);
+    });
   });
 });

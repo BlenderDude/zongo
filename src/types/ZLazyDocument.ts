@@ -15,14 +15,14 @@ export type ZLazyDocument<Definition extends ZCollectionDefinition<any, any>> =
 
 export function createZLazyDocument<
   Definition extends ZCollectionDefinition<any, any>,
-  Collection extends ZCollection<Definition>
+  ZCol extends ZCollection<Definition>
 >(
   _id: ObjectId,
   definition: Definition,
-  collection: Collection
+  zCollection: ZCol
 ): ZLazyDocument<Definition> {
   type FullData = z.infer<ZCollectionBranded<Definition>>;
-  const knownKeys = Object.keys(definition.schema._type.shape);
+  // const knownKeys = Object.keys(definition.schema._type.shape);
   let pendingRead: Promise<Partial<FullData>> | null = null;
   const promises = new Map<keyof FullData, Promise<Partial<FullData>>>();
 
@@ -49,7 +49,10 @@ export function createZLazyDocument<
         for (const key of keys) {
           projection[key] = 1;
         }
-        const doc = await collection.findOne({ _id }, { projection });
+        const doc = await zCollection.collection.findOne(
+          { _id },
+          { projection }
+        );
         if (!doc) {
           throw new Error("Document not found");
         }
@@ -61,13 +64,13 @@ export function createZLazyDocument<
   const proxy = new Proxy(
     {},
     {
-      has(_target, prop) {
-        return knownKeys.includes(String(prop));
-      },
+      // has(_target, prop) {
+      //   return knownKeys.includes(String(prop));
+      // },
       get(_target, prop) {
-        if (!knownKeys.includes(prop as string)) {
-          return undefined;
-        }
+        // if (!knownKeys.includes(prop as string)) {
+        //   return undefined;
+        // }
         return getKey(prop as keyof FullData);
       },
     }
