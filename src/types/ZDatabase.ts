@@ -72,7 +72,7 @@ export class ZDatabase<Definitions extends DefinitionsType = {}> {
     const result = definition.schema.parse(data) as Result;
     const resolvedData = await this.resolveReferences<Result>(result);
     await this.getCollection(def).collection.insertOne(resolvedData as any);
-    return resolvedData;
+    return result;
   }
 
   findOneLazy<Def extends keyof Definitions>(def: Def, id: ObjectId) {
@@ -91,7 +91,7 @@ export class ZDatabase<Definitions extends DefinitionsType = {}> {
     input: Input
   ): Promise<ResolveZReferences<Input>> {
     if (input instanceof ZDocumentReference) {
-      return input.resolve(this as any) as any;
+      return input.resolveFull(this as any) as any;
     }
     if (Array.isArray(input)) {
       return Promise.all(input.map(this.resolveReferences)) as any;

@@ -6,6 +6,7 @@ import {
   ZCollectionModelName,
 } from "./ZCollectionDefinition";
 import { ZDatabase } from "./ZDatabase";
+import { createZLazyDocument, ZLazyDocument } from "./ZLazyDocument";
 import { ZLazyDocumentManager } from "./ZLazyDocumentManager";
 
 export class ZDocumentReference<
@@ -19,38 +20,35 @@ export class ZDocumentReference<
     public mask: Mask | "full"
   ) {}
 
-  async resolve<ZDB extends ZDatabase<any>>(
-    zdb: ZDB
-  ): Promise<
-    Mask extends "full"
-      ? ZCollectionBranded<Definition>
-      : Pick<
-          z.output<ZCollectionBranded<Definition>>,
-          Extract<
-            keyof z.output<ZCollectionBranded<Definition>>,
-            keyof Mask | "_id"
-          >
-        >
-  > {
-    const modelName = this.definition
-      .modelName as ZCollectionModelName<Definition>;
-    if (this.mask === "full") {
-      const collection = zdb.getCollection(modelName);
-      return collection.findOne({ _id: this._id }) as any;
-    }
-    const doc = zdb.findOneLazy(modelName, this._id);
-    const manager = new ZLazyDocumentManager(doc);
+  resolve<ZDB extends ZDatabase<any>>(zdb: ZDB): ZLazyDocument<Definition> {
+    return createZLazyDocument(
+      this._id,
+      this.definition,
+      zdb.getCollection(this.definition.modelName),
+      this.existingData
+    );
+  }
 
-    const requiredKeys = Object.keys(this.mask).filter(
-      (key) => !(key in this.existingData)
-    );
-    const requiredKeysMask = Object.fromEntries(
-      requiredKeys.map((key) => [key, true as const])
-    );
-    const maskedData = await manager.collect(requiredKeysMask as any);
-    return {
+  async resolveFull<ZDB extends ZDatabase<any>>(
+    zdb: ZDB
+  ): Promise<z.output<ZCollectionBranded<Definition>>> {
+    const modelName = this.definition.modelName;
+    const collection = zdb.getCollection(modelName);
+    if (this.mask === "full") {
+      return collection.findOne(this._id);
+    }
+    const projection: Record<string, 0> = {};
+    for (const key of Object.keys(this.existingData)) {
+      projection[key] = 0;
+    }
+    const missingData = await collection.collection.findOne(this._id, {
+      projection,
+    });
+    const doc = {
       ...this.existingData,
-      ...maskedData,
+      ...missingData,
     };
+
+    return collection.hydrate(doc);
   }
 }

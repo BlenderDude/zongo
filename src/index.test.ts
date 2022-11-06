@@ -1,5 +1,6 @@
 import { Db, MongoClient, ObjectId } from "mongodb";
 import { z } from "zod";
+import { ZDocumentReference } from "./types/ZDocumentReference";
 import {
   ZCollectionDefinition,
   ZDatabase,
@@ -7,12 +8,41 @@ import {
   zEmbeddedSchema,
 } from "./zongo";
 
+function expectDocumentsToMatch(actual: any, expected: any) {
+  function serialize(obj: any) {
+    function replacer(key: string, value: any) {
+      if (value instanceof ObjectId) {
+        return value.toHexString();
+      }
+      if (value instanceof ZDocumentReference) {
+        return `ZDocumentReference(${value.definition.modelName},${value._id})`;
+      }
+      return value;
+    }
+    return JSON.parse(JSON.stringify(obj, replacer));
+  }
+  expect(serialize(actual)).toEqual(serialize(expected));
+}
+
 function createZdb(db: Db) {
+  const photoDefinition = new ZCollectionDefinition(
+    "Photo",
+    z.object({
+      _id: zObjectId(),
+      url: z.string(),
+      description: z.string(),
+    })
+  );
   const userDefinition = new ZCollectionDefinition(
     "User",
     z.object({
       _id: zObjectId(),
       name: z.string(),
+      photo: zEmbeddedSchema
+        .partial(photoDefinition, {
+          url: true,
+        })
+        .nullable(),
     })
   );
   const postDefinition = new ZCollectionDefinition(
@@ -43,7 +73,8 @@ function createZdb(db: Db) {
     .addDefinition(userDefinition)
     .addDefinition(postDefinition)
     .addDefinition(discriminatedDefinition)
-    .addDefinition(refToDistDefinition);
+    .addDefinition(refToDistDefinition)
+    .addDefinition(photoDefinition);
 }
 
 describe("create", () => {
@@ -66,6 +97,7 @@ describe("create", () => {
     const expectedUser = {
       _id: new ObjectId(),
       name: "Daniel",
+      photo: null,
     };
     await zdb.create("User", expectedUser);
     const user = await zdb.getCollection("User").findOne({ name: "Daniel" });
@@ -77,6 +109,7 @@ describe("create", () => {
     const expectedUser = {
       _id: new ObjectId(),
       name: "Daniel",
+      photo: null,
     };
     const expectedPost = {
       _id: new ObjectId(),
@@ -132,7 +165,7 @@ describe("create", () => {
       });
 
       expect(expectedA).toEqual(a);
-      expect(res.testRef).toEqual(a);
+      expectDocumentsToMatch(await res.testRef.resolveFull(zdb), a);
     });
     it("creates full reference", async () => {
       const zdb = createZdb(db);
@@ -149,7 +182,33 @@ describe("create", () => {
       });
 
       expect(expectedA).toEqual(a);
-      expect(res.testRef).toEqual(a);
+      expectDocumentsToMatch(await res.testRef.resolveFull(zdb), a);
     });
+  });
+  it("traverses references automatically", async () => {
+    const zdb = createZdb(db);
+    const photo = await zdb.create("Photo", {
+      _id: new ObjectId(),
+      url: "https://example.com",
+      description: "test",
+    });
+    const user = await zdb.create("User", {
+      _id: new ObjectId(),
+      name: "Daniel",
+      photo,
+    });
+    const post = await zdb.create("Post", {
+      _id: new ObjectId(),
+      name: "Post 1",
+      author: user,
+    });
+
+    const dPost = await zdb.getCollection("Post").findOne(post._id);
+    const dAuthor = await dPost?.author.resolveFull(zdb);
+    const dPhoto = await dAuthor?.photo?.resolveFull(zdb);
+
+    expectDocumentsToMatch(dPost, post);
+    expectDocumentsToMatch(dAuthor, user);
+    expectDocumentsToMatch(dPhoto, photo);
   });
 });
