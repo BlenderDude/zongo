@@ -1,4 +1,5 @@
 import { z, ZodBranded, ZodDiscriminatedUnion, ZodObject, ZodUnion } from "zod";
+import { ResolveZReferences, ZDatabase } from "./ZDatabase";
 
 export class ZCollectionDefinition<
   ModelName extends string,
@@ -6,6 +7,16 @@ export class ZCollectionDefinition<
 > {
   public collection: string;
   public schema: z.ZodBranded<Schema, ModelName>;
+  private _zdb: ZDatabase<any> | null = null;
+  set zdb(val: ZDatabase<any>) {
+    this._zdb = val;
+  }
+  get zdb() {
+    if (!this._zdb) {
+      throw new Error("ZDB not set");
+    }
+    return this._zdb;
+  }
 
   constructor(public modelName: ModelName, schema: Schema) {
     this.collection = modelName;
@@ -69,3 +80,7 @@ export type ZCollectionModelName<T> = T extends ZCollectionDefinition<
 >
   ? M
   : never;
+
+export type ZRawDocumentType<
+  Definition extends ZCollectionDefinition<any, any>
+> = ResolveZReferences<z.output<ZCollectionBranded<Definition>>>;

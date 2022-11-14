@@ -7,20 +7,21 @@ import {
 } from "./ZCollectionDefinition";
 import { ZDatabase } from "./ZDatabase";
 import { createZLazyDocument, ZLazyDocument } from "./ZLazyDocument";
-import { ZLazyDocumentManager } from "./ZLazyDocumentManager";
 
 export class ZDocumentReference<
   Definition extends ZCollectionDefinition<string, z.ZodSchema>,
-  Mask extends Record<string, true | undefined> = never
+  Mask extends Record<string, true | undefined> = never,
+  ExistingData extends Record<string, any> = {}
 > {
   constructor(
     public _id: ObjectId,
     public definition: Definition,
-    private existingData: any,
+    private existingData: ExistingData,
     public mask: Mask | "full"
   ) {}
 
-  resolve<ZDB extends ZDatabase<any>>(zdb: ZDB): ZLazyDocument<Definition> {
+  resolve(): ZLazyDocument<Definition> {
+    const zdb = this.definition.zdb;
     return createZLazyDocument(
       this._id,
       this.definition,
@@ -29,9 +30,9 @@ export class ZDocumentReference<
     );
   }
 
-  async resolveFull<ZDB extends ZDatabase<any>>(
-    zdb: ZDB
-  ): Promise<z.output<ZCollectionBranded<Definition>>> {
+  async resolveFull(): Promise<z.output<ZCollectionBranded<Definition>>> {
+    const zdb = this.definition.zdb;
+
     const modelName = this.definition.modelName;
     const collection = zdb.getCollection(modelName);
     if (this.mask === "full") {
@@ -41,7 +42,7 @@ export class ZDocumentReference<
     for (const key of Object.keys(this.existingData)) {
       projection[key] = 0;
     }
-    const missingData = await collection.collection.findOne(this._id, {
+    const missingData = await collection.findOne(this._id, {
       projection,
     });
     const doc = {
@@ -49,6 +50,10 @@ export class ZDocumentReference<
       ...missingData,
     };
 
-    return collection.hydrate(doc);
+    return zdb.hydrate(modelName, doc);
+  }
+
+  getExisting() {
+    return this.existingData;
   }
 }

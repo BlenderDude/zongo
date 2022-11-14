@@ -1,4 +1,4 @@
-import { Db, MongoClient, ObjectId } from "mongodb";
+import { Collection, Db, MongoClient, ObjectId } from "mongodb";
 import { BRAND, z, ZodBigInt } from "zod";
 import { RemoveZDefinitions } from "../helpers/zEmbeddedSchema";
 import { ZCollection } from "./ZCollection";
@@ -6,9 +6,11 @@ import {
   ZCollectionBranded,
   ZCollectionDefinition,
   ZCollectionModelName,
+  ZRawDocumentType,
 } from "./ZCollectionDefinition";
 import { ZDocumentReference } from "./ZDocumentReference";
 import { createZLazyDocument } from "./ZLazyDocument";
+import { AsyncLocalStorage } from "async_hooks";
 
 type CreateDocumentParam<
   Definitions extends DefinitionsType,
@@ -30,32 +32,48 @@ export class ZDatabase<Definitions extends DefinitionsType = {}> {
     ZCollectionDefinition<any, any>
   >();
 
-  constructor(private db: Db) {}
+  private static als = new AsyncLocalStorage<ZDatabase<any>>();
+  private static globalInstance: ZDatabase<any> | undefined = undefined;
 
-  addDefinition<Collection extends ZCollectionDefinition<any, any>>(
-    collection: Collection
+  public static setGlobalInstance(instance: ZDatabase<any>) {
+    ZDatabase.globalInstance = instance;
+  }
+
+  public static getContextZDB() {
+    const ctxZDB = ZDatabase.als.getStore();
+    if (ctxZDB) {
+      return ctxZDB;
+    }
+    return this.globalInstance;
+  }
+
+  constructor(private db: Db) {
+    db.collection("", {
+      serializeFunctions: true,
+    });
+  }
+
+  addDefinition<CollectionDef extends ZCollectionDefinition<any, any>>(
+    definition: CollectionDef
   ): ZDatabase<
     Definitions & {
-      [key in ZCollectionModelName<Collection>]: Collection;
+      [key in ZCollectionModelName<CollectionDef>]: CollectionDef;
     }
   > {
-    this.definitions.set(collection.modelName, collection);
+    definition.zdb = this;
+    this.definitions.set(definition.modelName, definition);
+
     return this as any;
   }
 
   getCollection<DefName extends keyof Definitions>(
     defName: DefName
-  ): ZCollection<Definitions[DefName]> {
-    const definition = this.definitions.get(defName) as
-      | Definitions[DefName]
-      | undefined;
+  ): Collection<ZRawDocumentType<Definitions[DefName]>> {
+    const definition = this.definitions.get(defName);
     if (!definition) {
       throw new Error(`Collection ${String(defName)} not found`);
     }
-    return new ZCollection<Definitions[DefName]>(
-      definition,
-      this.db.collection(definition.modelName)
-    );
+    return this.db.collection(definition.modelName);
   }
 
   async create<Def extends keyof Definitions>(
@@ -69,9 +87,9 @@ export class ZDatabase<Definitions extends DefinitionsType = {}> {
     }
     type Result = z.output<ZCollectionBranded<Definition>>;
 
-    const result = definition.schema.parse(data) as Result;
-    const resolvedData = await this.resolveReferences<Result>(result);
-    await this.getCollection(def).collection.insertOne(resolvedData as any);
+    const result = (await definition.schema.parseAsync(data)) as Result;
+    const resolvedData = await this.getRawDocument<Result>(result);
+    await this.getCollection(def).insertOne(resolvedData as any);
     return result;
   }
 
@@ -87,14 +105,14 @@ export class ZDatabase<Definitions extends DefinitionsType = {}> {
     );
   }
 
-  async resolveReferences<Input>(
+  async getRawDocument<Input>(
     input: Input
   ): Promise<ResolveZReferences<Input>> {
     if (input instanceof ZDocumentReference) {
-      return input.resolveFull(this as any) as any;
+      return input.getExisting();
     }
     if (Array.isArray(input)) {
-      return Promise.all(input.map(this.resolveReferences)) as any;
+      return Promise.all(input.map(this.getRawDocument)) as any;
     }
     if (
       typeof input === "object" &&
@@ -104,17 +122,84 @@ export class ZDatabase<Definitions extends DefinitionsType = {}> {
       const result: any = {};
       await Promise.all(
         Object.entries(input).map(async ([key, value]) => {
-          result[key] = await this.resolveReferences(value);
+          result[key] = await this.getRawDocument(value);
         })
       );
       return result;
     }
     return input as any;
   }
+
+  async hydrateMultiple<DefName extends keyof Definitions, Doc extends object>(
+    defName: DefName,
+    docs:
+      | Doc[]
+      | ((
+          collection: Collection<ZRawDocumentType<Definitions[DefName]>>
+        ) => Doc[])
+  ): Promise<z.output<ZCollectionBranded<Definitions[DefName]>>[]> {
+    let resolvedDocs: Doc[];
+    if (typeof docs === "function") {
+      resolvedDocs = docs(this.getCollection(defName));
+    } else {
+      resolvedDocs = docs;
+    }
+    const definition = this.definitions.get(defName) as Definitions[DefName];
+    if (!definition) {
+      throw new Error(`Collection ${String(defName)} not found`);
+    }
+    return Promise.all(
+      resolvedDocs.map((doc) => definition.schema.parseAsync(doc))
+    ) as any;
+  }
+
+  async hydrate<DefName extends keyof Definitions, Doc extends object>(
+    defName: DefName,
+    doc:
+      | Doc
+      | null
+      | ((
+          collection: Collection<ZRawDocumentType<Definitions[DefName]>>
+        ) => Doc | null)
+  ) {
+    let finalDoc: Doc | null;
+    if (typeof doc === "function") {
+      finalDoc = doc(this.getCollection(defName));
+    } else {
+      finalDoc = doc;
+    }
+    if (!finalDoc) {
+      return null;
+    }
+
+    const definition = this.definitions.get(defName) as Definitions[DefName];
+    if (!definition) {
+      throw new Error(`Collection ${String(defName)} not found`);
+    }
+    return definition.schema.parseAsync(finalDoc) as Promise<
+      z.output<ZCollectionBranded<Definitions[DefName]>>
+    >;
+  }
+
+  async runInContext<T>(fn: () => Promise<T>): Promise<T> {
+    return new Promise((resolve, reject) => {
+      ZDatabase.als.run(this as any, async () => {
+        try {
+          resolve(await fn());
+        } catch (e) {
+          reject(e);
+        }
+      });
+    });
+  }
 }
 
-export type ResolveZReferences<T> = T extends ZDocumentReference<infer Def, any>
-  ? z.input<ZCollectionBranded<Def>>
+export type ResolveZReferences<T> = T extends ZDocumentReference<
+  any,
+  any,
+  infer Existing
+>
+  ? Existing
   : T extends ObjectId | Buffer | Date
   ? T
   : T extends Array<infer U>

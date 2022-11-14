@@ -56,7 +56,7 @@ function schemaWrapper<
   class ZSchemaWrapper extends ZodType<
     Schema["_output"] & DefNameBrand<ZCollectionModelName<Definition>>,
     ZodBrandedDef<Schema>,
-    Schema["_input"] & DefNameBrand<ZCollectionModelName<Definition>>
+    Schema["_input"] & ZCollectionModelName<Definition>
   > {
     _parse(input: ParseInput): ParseReturnType<any> {
       const { ctx } = this._processInputParams(input);
@@ -76,10 +76,38 @@ function schemaWrapper<
         typeName: z.ZodFirstPartyTypeKind.ZodBranded,
       }),
     ])
-    .transform((data: { _id: ObjectId } | ObjectId) => {
-      const id = data instanceof ObjectId ? data : data._id;
-      return new ZDocumentReference(id, definition, data, mask ?? "full");
-    });
+    .transform<ZDocumentReference<Definition, Mask, z.output<Schema>>>(
+      async (data: z.output<Schema> | ObjectId) => {
+        // If object is ID, then resolve reference to minimal required data
+        if (data instanceof ObjectId) {
+          const { zdb } = definition;
+          const collection = zdb.getCollection(definition.modelName);
+          if (mask !== undefined) {
+            const projection: Record<string, 1> = {};
+            for (const key in mask) {
+              if (mask[key] === true) {
+                projection[key] = 1;
+              }
+            }
+            const doc = await collection.findOne(data, {
+              projection,
+            });
+            return new ZDocumentReference(data, definition, doc, mask) as any;
+          }
+          const doc = await collection.findOne(data);
+          return new ZDocumentReference(data, definition, doc, mask ?? "full");
+        }
+        if (data._id instanceof ObjectId) {
+          return new ZDocumentReference(
+            data._id,
+            definition,
+            data,
+            mask ?? "full"
+          );
+        }
+        throw new Error("Invalid data, must have _id");
+      }
+    );
 }
 
 export const zEmbeddedSchema = {

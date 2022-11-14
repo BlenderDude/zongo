@@ -69,12 +69,16 @@ function createZdb(db: Db) {
       testRef: zEmbeddedSchema.full(discriminatedDefinition),
     })
   );
-  return new ZDatabase(db)
+  const zdb = new ZDatabase(db)
     .addDefinition(userDefinition)
     .addDefinition(postDefinition)
     .addDefinition(discriminatedDefinition)
     .addDefinition(refToDistDefinition)
     .addDefinition(photoDefinition);
+
+  ZDatabase.setGlobalInstance(zdb);
+
+  return zdb;
 }
 
 describe("create", () => {
@@ -120,7 +124,7 @@ describe("create", () => {
     await zdb.create("Post", expectedPost);
 
     const post = await zdb.getCollection("Post").findOne({ name: "Post 1" });
-    const rPost = await zdb.resolveReferences(post);
+    const rPost = await zdb.getRawDocument(post);
     expect(rPost).toEqual(expectedPost);
     const user = await zdb.getCollection("User").findOne({ name: "Daniel" });
     expect(user).toEqual(expectedUser);
@@ -165,7 +169,7 @@ describe("create", () => {
       });
 
       expect(expectedA).toEqual(a);
-      expectDocumentsToMatch(await res.testRef.resolveFull(zdb), a);
+      expectDocumentsToMatch(await res.testRef.resolveFull(), a);
     });
     it("creates full reference", async () => {
       const zdb = createZdb(db);
@@ -182,7 +186,7 @@ describe("create", () => {
       });
 
       expect(expectedA).toEqual(a);
-      expectDocumentsToMatch(await res.testRef.resolveFull(zdb), a);
+      expectDocumentsToMatch(await res.testRef.resolveFull(), a);
     });
   });
   it("traverses references automatically", async () => {
@@ -202,10 +206,15 @@ describe("create", () => {
       name: "Post 1",
       author: user,
     });
+    const raw = await zdb.getRawDocument(post);
+    console.log("raw", zdb.getCollection("Post"));
 
-    const dPost = await zdb.getCollection("Post").findOne(post._id);
-    const dAuthor = await dPost?.author.resolveFull(zdb);
-    const dPhoto = await dAuthor?.photo?.resolveFull(zdb);
+    const test = await zdb.getCollection("Post").findOne(post._id);
+    const dPost = await zdb.hydrate("Post", (col) => col.findOne(post._id));
+    const dAuthor = await dPost?.author.resolveFull();
+    const dPhoto = await dAuthor?.photo?.resolveFull();
+
+    console.log("existing", dAuthor?.photo?.getExisting());
 
     expectDocumentsToMatch(dPost, post);
     expectDocumentsToMatch(dAuthor, user);

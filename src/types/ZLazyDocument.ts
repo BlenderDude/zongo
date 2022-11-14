@@ -1,4 +1,4 @@
-import { ObjectId } from "mongodb";
+import { Collection, ObjectId } from "mongodb";
 import { z } from "zod";
 import { ZCollection } from "./ZCollection";
 import {
@@ -15,12 +15,11 @@ export type ZLazyDocument<Definition extends ZCollectionDefinition<any, any>> =
   };
 
 export function createZLazyDocument<
-  Definition extends ZCollectionDefinition<any, any>,
-  ZCol extends ZCollection<Definition>
+  Definition extends ZCollectionDefinition<any, any>
 >(
   _id: ObjectId,
   definition: Definition,
-  zCollection: ZCol,
+  collection: Collection<any>,
   existingData?: Record<string, any>
 ): ZLazyDocument<Definition> {
   type FullData = z.infer<ZCollectionBranded<Definition>>;
@@ -69,7 +68,7 @@ export function createZLazyDocument<
         for (const key of keys) {
           projection[key] = 1;
         }
-        const doc = await zCollection.collection.findOne(
+        const doc = await collection.findOne(
           { _id },
           {
             projection: {

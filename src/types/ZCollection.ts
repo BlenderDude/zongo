@@ -24,7 +24,7 @@ export class ZCollection<Definition extends ZCollectionDefinition<any, any>> {
 
   hydrate(
     doc: z.input<ZCollectionBranded<Definition>>
-  ): z.output<ZCollectionBranded<Definition>> {
-    return this.definition.schema.parse(doc);
+  ): Promise<z.output<ZCollectionBranded<Definition>>> {
+    return this.definition.schema.parseAsync(doc);
   }
 }
