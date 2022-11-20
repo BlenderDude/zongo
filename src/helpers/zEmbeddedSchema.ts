@@ -48,36 +48,60 @@ type DefNameBrand<DefName extends string> = {
   [DEF_NAME_SYM]: DefName;
 };
 
+export class ZSchemaReferenceWrapper<
+  Schema extends z.ZodSchema,
+  Definition extends ZCollectionDefinition<any, z.ZodSchema>
+> extends ZodType<
+  Schema["_output"] & DefNameBrand<ZCollectionModelName<Definition>>,
+  ZodBrandedDef<Schema>,
+  Schema["_input"] & DefNameBrand<ZCollectionModelName<Definition>>
+> {
+  constructor(
+    public definition: Definition,
+    public mask: string[] | undefined,
+    def: z.ZodBrandedDef<any>
+  ) {
+    super(def);
+  }
+
+  _parse(input: ParseInput): ParseReturnType<any> {
+    const { ctx } = this._processInputParams(input);
+    const data = ctx.data;
+    return this._def.type._parse({
+      data,
+      path: ctx.path,
+      parent: ctx,
+    });
+  }
+}
+
 function schemaWrapper<
   Schema extends z.ZodSchema,
   Definition extends ZCollectionDefinition<any, z.ZodSchema>,
   Mask extends Record<string, true | undefined>
 >(schema: Schema, definition: Definition, mask?: Mask) {
-  class ZSchemaWrapper extends ZodType<
-    Schema["_output"] & DefNameBrand<ZCollectionModelName<Definition>>,
-    ZodBrandedDef<Schema>,
-    Schema["_input"] & DefNameBrand<ZCollectionModelName<Definition>>
-  > {
-    _parse(input: ParseInput): ParseReturnType<any> {
-      const { ctx } = this._processInputParams(input);
-      const data = ctx.data;
-      return this._def.type._parse({
-        data,
-        path: ctx.path,
-        parent: ctx,
-      });
-    }
-  }
+  const maskArray = Object.keys(mask || {});
+
   return z
     .union([
       zObjectId(),
-      new ZSchemaWrapper({
-        type: schema,
-        typeName: z.ZodFirstPartyTypeKind.ZodBranded,
-      }),
+      z.instanceof(ZDocumentReference),
+      new ZSchemaReferenceWrapper<Schema, Definition>(
+        definition,
+        mask ? maskArray : undefined,
+        {
+          type: schema,
+          typeName: z.ZodFirstPartyTypeKind.ZodBranded,
+        }
+      ),
     ])
     .transform<ZDocumentReference<Definition, Mask, z.output<Schema>>>(
-      async (data: z.output<Schema> | ObjectId) => {
+      async (
+        data: z.output<Schema> | ObjectId | ZDocumentReference<any, any, any>
+      ) => {
+        if (data instanceof ZDocumentReference) {
+          return data;
+        }
         // If object is ID, then resolve reference to minimal required data
         if (data instanceof ObjectId) {
           const { zdb } = definition;

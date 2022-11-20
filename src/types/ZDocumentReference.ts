@@ -36,7 +36,7 @@ export class ZDocumentReference<
     const modelName = this.definition.modelName;
     const collection = zdb.getCollection(modelName);
     if (this.mask === "full") {
-      return collection.findOne(this._id);
+      return zdb.hydrate(modelName, await collection.findOne(this._id));
     }
     const projection: Record<string, 0> = {};
     for (const key of Object.keys(this.existingData)) {

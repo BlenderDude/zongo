@@ -1,12 +1,6 @@
 import { Db, MongoClient, ObjectId } from "mongodb";
 import { z } from "zod";
-import { ZDocumentReference } from "./types/ZDocumentReference";
-import {
-  ZCollectionDefinition,
-  ZDatabase,
-  zObjectId,
-  zEmbeddedSchema,
-} from "./zongo";
+import { zongo } from "./index";
 
 function expectDocumentsToMatch(actual: any, expected: any) {
   function serialize(obj: any) {
@@ -14,7 +8,7 @@ function expectDocumentsToMatch(actual: any, expected: any) {
       if (value instanceof ObjectId) {
         return value.toHexString();
       }
-      if (value instanceof ZDocumentReference) {
+      if (value instanceof zongo.ZDocumentReference) {
         return `ZDocumentReference(${value.definition.modelName},${value._id})`;
       }
       return value;
@@ -25,51 +19,58 @@ function expectDocumentsToMatch(actual: any, expected: any) {
 }
 
 function createZdb(db: Db) {
-  const photoDefinition = new ZCollectionDefinition(
+  const photoDefinition = new zongo.ZCollectionDefinition(
     "Photo",
     z.object({
-      _id: zObjectId(),
+      _id: zongo.zObjectId(),
       url: z.string(),
       description: z.string(),
     })
   );
-  const userDefinition = new ZCollectionDefinition(
+  const userDefinition = new zongo.ZCollectionDefinition(
     "User",
     z.object({
-      _id: zObjectId(),
+      _id: zongo.zObjectId(),
       name: z.string(),
-      photo: zEmbeddedSchema
+      photo: zongo.zEmbeddedSchema
         .partial(photoDefinition, {
           url: true,
         })
         .nullable(),
     })
   );
-  const postDefinition = new ZCollectionDefinition(
+  const postDefinition = new zongo.ZCollectionDefinition(
     "Post",
     z.object({
-      _id: zObjectId(),
+      _id: zongo.zObjectId(),
       name: z.string(),
-      author: zEmbeddedSchema.partial(userDefinition, {
-        name: true,
-      }),
+      author: zongo.zEmbeddedSchema.full(userDefinition),
+      photos: z.array(zongo.zEmbeddedSchema.full(photoDefinition)),
     })
   );
-  const discriminatedDefinition = new ZCollectionDefinition(
+  const discriminatedDefinition = new zongo.ZCollectionDefinition(
     "DiscriminatedUnion",
     z.discriminatedUnion("_type", [
-      z.object({ _id: zObjectId(), _type: z.literal("a"), a: z.string() }),
-      z.object({ _id: zObjectId(), _type: z.literal("b"), b: z.string() }),
+      z.object({
+        _id: zongo.zObjectId(),
+        _type: z.literal("a"),
+        a: z.string(),
+      }),
+      z.object({
+        _id: zongo.zObjectId(),
+        _type: z.literal("b"),
+        b: z.string(),
+      }),
     ])
   );
-  const refToDistDefinition = new ZCollectionDefinition(
+  const refToDistDefinition = new zongo.ZCollectionDefinition(
     "RefToDiscriminatedUnion",
     z.object({
-      _id: zObjectId(),
-      testRef: zEmbeddedSchema.full(discriminatedDefinition),
+      _id: zongo.zObjectId(),
+      testRef: zongo.zEmbeddedSchema.full(discriminatedDefinition),
     })
   );
-  const zdb = new ZDatabase(db)
+  const zdb = new zongo.ZDatabase(db)
     .addDefinition(userDefinition)
     .addDefinition(postDefinition)
     .addDefinition(discriminatedDefinition)
@@ -117,19 +118,14 @@ describe("create", () => {
       _id: new ObjectId(),
       name: "Post 1",
       author: expectedUser,
+      photos: [],
     };
     await zdb.create("User", expectedUser);
     await zdb.create("Post", expectedPost);
 
     const post = await zdb.getCollection("Post").findOne({ name: "Post 1" });
     const rPost = await zdb.getRawDocument(post);
-    expect(rPost).toEqual({
-      ...expectedPost,
-      author: {
-        _id: expectedUser._id,
-        name: expectedUser.name,
-      },
-    });
+    expect(rPost).toEqual(expectedPost);
     const user = await zdb.getCollection("User").findOne({ name: "Daniel" });
     expect(user).toEqual(expectedUser);
   });
@@ -209,16 +205,79 @@ describe("create", () => {
       _id: new ObjectId(),
       name: "Post 1",
       author: user,
+      photos: [photo],
     });
-    const raw = await zdb.getRawDocument(post);
-    console.log("raw", zdb.getCollection("Post"));
 
-    const dPost = await zdb.hydrate("Post", (col) => col.findOne(post._id));
+    const dPost = await zdb.hydrate("Post", (col) =>
+      col.findOne({ _id: post._id })
+    );
     const dAuthor = await dPost?.author.resolveFull();
     const dPhoto = await dAuthor?.photo?.resolveFull();
 
     expectDocumentsToMatch(dPost, post);
     expectDocumentsToMatch(dAuthor, user);
     expectDocumentsToMatch(dPhoto, photo);
+  });
+  it("locates references automatically", async () => {
+    const zdb = createZdb(db);
+    const references = await zdb.getReferences("Photo");
+    expect(Array.from(references.keys())).toEqual(["User", "Post"]);
+    expect(Array.from(references.get("User")!)).toStrictEqual([
+      {
+        mask: ["url", "_id"],
+        path: "photo",
+      },
+    ]);
+    expect(Array.from(references.get("Post")!)).toStrictEqual([
+      {
+        path: "photos.$",
+        mask: undefined,
+      },
+    ]);
+  });
+  it("updates references with new document", async () => {
+    const zdb = createZdb(db);
+    const photo = await zdb.create("Photo", {
+      _id: new ObjectId(),
+      url: "https://example.com",
+      description: "test",
+    });
+    const photo2 = await zdb.create("Photo", {
+      _id: new ObjectId(),
+      url: "https://example.com/2",
+      description: "test2",
+    });
+    const user = await zdb.create("User", {
+      _id: new ObjectId(),
+      name: "Daniel",
+      photo,
+    });
+    const post = await zdb.create("Post", {
+      _id: new ObjectId(),
+      name: "Post 1",
+      author: user,
+      photos: [photo, photo2],
+    });
+    const updatedPhoto = {
+      _id: photo._id,
+      url: "https://example.com/updated",
+      description: "test",
+    };
+    await zdb
+      .getCollection("Photo")
+      .updateOne(
+        { _id: photo._id },
+        { $set: { url: "https://example.com/updated" } }
+      );
+    await zdb.updateReferences("Photo", photo._id);
+    const updatedUser = await zdb.getCollection("User").findOne({
+      _id: user._id,
+    });
+    const updatedPost = await zdb.getCollection("Post").findOne({
+      _id: post._id,
+    });
+    const { description, ...maskedPhoto } = updatedPhoto;
+    expect(updatedUser?.photo).toEqual(maskedPhoto);
+    expect(updatedPost?.photos[0]).toEqual(updatedPhoto);
   });
 });

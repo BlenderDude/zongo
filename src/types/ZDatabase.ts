@@ -1,6 +1,9 @@
 import { Collection, Db, MongoClient, ObjectId } from "mongodb";
 import { BRAND, z, ZodBigInt } from "zod";
-import { RemoveZDefinitions } from "../helpers/zEmbeddedSchema";
+import {
+  RemoveZDefinitions,
+  ZSchemaReferenceWrapper,
+} from "../helpers/zEmbeddedSchema";
 import { ZCollection } from "./ZCollection";
 import {
   ZCollectionBranded,
@@ -18,7 +21,9 @@ type CreateDocumentParam<
 > = RemoveZDefinitions<
   Omit<z.input<ZCollectionBranded<Definitions[Def]>>, typeof BRAND>,
   {
-    [DefName in keyof Definitions]: ObjectId;
+    [DefName in keyof Definitions]:
+      | ObjectId
+      | ZDocumentReference<Definitions[DefName], any, any>;
   }
 >;
 
@@ -105,10 +110,10 @@ export class ZDatabase<Definitions extends DefinitionsType = {}> {
     input: Input
   ): Promise<ResolveZReferences<Input>> {
     if (input instanceof ZDocumentReference) {
-      return input.getExisting();
+      return await this.getRawDocument(input.getExisting());
     }
     if (Array.isArray(input)) {
-      return Promise.all(input.map(this.getRawDocument)) as any;
+      return Promise.all(input.map((elem) => this.getRawDocument(elem))) as any;
     }
     if (
       typeof input === "object" &&
@@ -187,6 +192,138 @@ export class ZDatabase<Definitions extends DefinitionsType = {}> {
         }
       });
     });
+  }
+
+  async getReferences<DefName extends keyof Definitions>(defName: DefName) {
+    const locations = new Map<
+      keyof Definitions,
+      Array<{
+        path: string;
+        mask?: string[];
+      }>
+    >();
+
+    for (const [traversedDefName, definition] of this.definitions.entries()) {
+      function traverseSchema(schema: unknown, pathSoFar: string[]) {
+        if (schema instanceof ZSchemaReferenceWrapper) {
+          if (schema.definition.collection === defName) {
+            const location = locations.get(traversedDefName) ?? [];
+            location.push({
+              path: pathSoFar.join("."),
+              mask: schema.mask,
+            });
+            locations.set(traversedDefName, location);
+          }
+        } else if (schema instanceof z.ZodObject) {
+          Object.entries(schema.shape).forEach(([key, value]) => {
+            traverseSchema(value, pathSoFar.concat(key));
+          });
+        } else if (schema instanceof z.ZodArray) {
+          traverseSchema(schema.element, pathSoFar.concat("$"));
+        } else if (schema instanceof z.ZodUnion) {
+          for (const option of schema.options) {
+            traverseSchema(option, pathSoFar.concat());
+          }
+        } else if (schema instanceof z.ZodIntersection) {
+          traverseSchema(schema._def.left, pathSoFar);
+          traverseSchema(schema._def.right, pathSoFar);
+        } else if (schema instanceof z.ZodDiscriminatedUnion) {
+          schema.options.forEach((option) => {
+            traverseSchema(option, pathSoFar.concat());
+          });
+        } else if (schema instanceof z.ZodTuple) {
+          (schema.items as any[]).forEach((item, index) => {
+            traverseSchema(item, pathSoFar.concat(index.toString()));
+          });
+        } else if (schema instanceof z.ZodBranded) {
+          traverseSchema(schema.unwrap(), pathSoFar.concat());
+        } else if (schema instanceof z.ZodNullable) {
+          traverseSchema(schema.unwrap(), pathSoFar.concat());
+        } else if (schema instanceof z.ZodEffects) {
+          traverseSchema(schema.innerType(), pathSoFar.concat());
+        } else if (schema instanceof z.ZodSet) {
+          traverseSchema(schema._def.valueType, pathSoFar.concat("$"));
+        } else if (schema instanceof z.ZodOptional) {
+          traverseSchema(schema.unwrap(), pathSoFar.concat());
+        } else if (schema instanceof z.ZodRecord) {
+          throw new Error("ZodRecord not supported");
+        } else if (schema instanceof z.ZodMap) {
+          throw new Error("ZodMap not supported");
+        } else if (
+          schema instanceof z.ZodAny ||
+          schema instanceof z.ZodUnknown ||
+          schema instanceof z.ZodNever ||
+          schema instanceof z.ZodVoid ||
+          schema instanceof z.ZodUndefined ||
+          schema instanceof z.ZodNull ||
+          schema instanceof z.ZodString ||
+          schema instanceof z.ZodNumber ||
+          schema instanceof z.ZodBigInt ||
+          schema instanceof z.ZodBoolean ||
+          schema instanceof z.ZodDate ||
+          schema instanceof z.ZodFunction ||
+          schema instanceof z.ZodPromise ||
+          schema instanceof z.ZodLazy ||
+          schema instanceof z.ZodLiteral ||
+          schema instanceof z.ZodEnum ||
+          schema instanceof z.ZodNativeEnum
+        ) {
+          return;
+        } else {
+          console.log(`Unknown schema type`, schema);
+        }
+      }
+      traverseSchema(definition.schema, []);
+    }
+    return locations;
+  }
+
+  async updateReferences<DefName extends keyof Definitions>(
+    defName: DefName,
+    _id: ObjectId
+  ) {
+    const collection = this.getCollection(defName) as Collection<any>;
+    const document = await collection.findOne({
+      _id,
+    });
+    const definition = this.definitions.get(defName) as Definitions[DefName];
+    const resolvedDocument = await this.getRawDocument(
+      await definition.schema.parseAsync(document)
+    );
+
+    const references = await this.getReferences(defName);
+    for (const [refDefName, collectionRefs] of references.entries()) {
+      for (const ref of collectionRefs) {
+        const collection = this.getCollection(refDefName) as Collection<any>;
+        const _id = resolvedDocument._id as ObjectId;
+        const idPath = `${ref.path}._id`;
+        const updateKeys: Record<string, any> = {};
+        for (const key of ref.mask ?? Object.keys(resolvedDocument)) {
+          updateKeys[`${ref.path}.${key}`] = resolvedDocument[key];
+        }
+        function buildFilter(pathParts: string[]): any {
+          if (pathParts.length === 0) {
+            return _id;
+          }
+          for (const [index, part] of pathParts.entries()) {
+            if (part === "$") {
+              return {
+                [pathParts.slice(0, index).join(".")]: {
+                  $elemMatch: buildFilter(pathParts.slice(index + 1)),
+                },
+              };
+            }
+          }
+          return {
+            [pathParts.join(".")]: buildFilter([]),
+          };
+        }
+        const filter = buildFilter(idPath.split("."));
+        await collection.updateMany(filter, {
+          $set: updateKeys,
+        });
+      }
+    }
   }
 }
 
