@@ -3,7 +3,7 @@ import { BRAND, z, ZodBigInt } from "zod";
 import {
   RemoveZDefinitions,
   ZSchemaReferenceWrapper,
-} from "../helpers/zEmbeddedSchema";
+} from "../schema/zEmbeddedSchema";
 import { ZCollection } from "./ZCollection";
 import {
   ZCollectionBranded,

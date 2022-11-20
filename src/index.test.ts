@@ -1,6 +1,6 @@
 import { Db, MongoClient, ObjectId } from "mongodb";
 import { z } from "zod";
-import { zongo } from "./index";
+import { zg } from "./index";
 
 function expectDocumentsToMatch(actual: any, expected: any) {
   function serialize(obj: any) {
@@ -8,7 +8,7 @@ function expectDocumentsToMatch(actual: any, expected: any) {
       if (value instanceof ObjectId) {
         return value.toHexString();
       }
-      if (value instanceof zongo.ZDocumentReference) {
+      if (value instanceof zg.ZDocumentReference) {
         return `ZDocumentReference(${value.definition.modelName},${value._id})`;
       }
       return value;
@@ -19,58 +19,58 @@ function expectDocumentsToMatch(actual: any, expected: any) {
 }
 
 function createZdb(db: Db) {
-  const photoDefinition = new zongo.ZCollectionDefinition(
+  const photoDefinition = new zg.ZCollectionDefinition(
     "Photo",
     z.object({
-      _id: zongo.zObjectId(),
+      _id: zg.zObjectId(),
       url: z.string(),
       description: z.string(),
     })
   );
-  const userDefinition = new zongo.ZCollectionDefinition(
+  const userDefinition = new zg.ZCollectionDefinition(
     "User",
     z.object({
-      _id: zongo.zObjectId(),
+      _id: zg.zObjectId(),
       name: z.string(),
-      photo: zongo.zEmbeddedSchema
+      photo: zg.zEmbeddedSchema
         .partial(photoDefinition, {
           url: true,
         })
         .nullable(),
     })
   );
-  const postDefinition = new zongo.ZCollectionDefinition(
+  const postDefinition = new zg.ZCollectionDefinition(
     "Post",
     z.object({
-      _id: zongo.zObjectId(),
+      _id: zg.zObjectId(),
       name: z.string(),
-      author: zongo.zEmbeddedSchema.full(userDefinition),
-      photos: z.array(zongo.zEmbeddedSchema.full(photoDefinition)),
+      author: zg.zEmbeddedSchema.full(userDefinition),
+      photos: z.array(zg.zEmbeddedSchema.full(photoDefinition)),
     })
   );
-  const discriminatedDefinition = new zongo.ZCollectionDefinition(
+  const discriminatedDefinition = new zg.ZCollectionDefinition(
     "DiscriminatedUnion",
     z.discriminatedUnion("_type", [
       z.object({
-        _id: zongo.zObjectId(),
+        _id: zg.zObjectId(),
         _type: z.literal("a"),
         a: z.string(),
       }),
       z.object({
-        _id: zongo.zObjectId(),
+        _id: zg.zObjectId(),
         _type: z.literal("b"),
         b: z.string(),
       }),
     ])
   );
-  const refToDistDefinition = new zongo.ZCollectionDefinition(
+  const refToDistDefinition = new zg.ZCollectionDefinition(
     "RefToDiscriminatedUnion",
     z.object({
-      _id: zongo.zObjectId(),
-      testRef: zongo.zEmbeddedSchema.full(discriminatedDefinition),
+      _id: zg.zObjectId(),
+      testRef: zg.zEmbeddedSchema.full(discriminatedDefinition),
     })
   );
-  const zdb = new zongo.ZDatabase(db)
+  const zdb = new zg.ZDatabase(db)
     .addDefinition(userDefinition)
     .addDefinition(postDefinition)
     .addDefinition(discriminatedDefinition)

@@ -1,3 +1,4 @@
-import * as zongo from "./zongo";
-export { zongo };
-export default zongo;
+import * as zg from "./zongo";
+
+export { zg };
+export default zg;
