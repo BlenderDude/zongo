@@ -15,32 +15,8 @@ import {
 } from "../types/ZCollectionDefinition";
 import { ZDocumentReference } from "../types/ZDocumentReference";
 import { zObjectId } from "./zObjectId";
-// import { ZEmbeddedSchema } from "../types/ZEmbeddedSchema";
 
 type RemoveBrand<T> = T extends z.ZodBranded<infer S, any> ? S : never;
-
-// export function zEmbeddedSchema<
-//   DC extends ZCollectionDefinition<any, z.AnyZodObject>,
-//   Mask extends Partial<Record<keyof RemoveBrand<DC["schema"]>["shape"], true>>
-// >(
-//   collection: DC,
-//   mask?: Mask
-// ): Mask extends undefined
-//   ? DC["schema"]
-//   : ZodObject<
-//       Pick<
-//         RemoveBrand<DC["schema"]>["shape"],
-//         Extract<keyof RemoveBrand<DC["schema"]>["shape"], keyof Mask>
-//       >,
-//       any,
-//       any
-//     > {
-//   if (mask === undefined) {
-//     return collection.schema as any;
-//   }
-//   const unbrandedSchema = collection.schema.unwrap();
-//   return unbrandedSchema.pick(mask).brand<DC["modelName"]>() as any;
-// }
 
 export const DEF_NAME_SYM: unique symbol = Symbol("DEF_NAME_SYM");
 
