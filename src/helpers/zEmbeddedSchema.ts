@@ -56,7 +56,7 @@ function schemaWrapper<
   class ZSchemaWrapper extends ZodType<
     Schema["_output"] & DefNameBrand<ZCollectionModelName<Definition>>,
     ZodBrandedDef<Schema>,
-    Schema["_input"] & ZCollectionModelName<Definition>
+    Schema["_input"] & DefNameBrand<ZCollectionModelName<Definition>>
   > {
     _parse(input: ParseInput): ParseReturnType<any> {
       const { ctx } = this._processInputParams(input);

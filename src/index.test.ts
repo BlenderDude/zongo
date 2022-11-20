@@ -76,8 +76,6 @@ function createZdb(db: Db) {
     .addDefinition(refToDistDefinition)
     .addDefinition(photoDefinition);
 
-  ZDatabase.setGlobalInstance(zdb);
-
   return zdb;
 }
 
@@ -125,7 +123,13 @@ describe("create", () => {
 
     const post = await zdb.getCollection("Post").findOne({ name: "Post 1" });
     const rPost = await zdb.getRawDocument(post);
-    expect(rPost).toEqual(expectedPost);
+    expect(rPost).toEqual({
+      ...expectedPost,
+      author: {
+        _id: expectedUser._id,
+        name: expectedUser.name,
+      },
+    });
     const user = await zdb.getCollection("User").findOne({ name: "Daniel" });
     expect(user).toEqual(expectedUser);
   });
@@ -209,12 +213,9 @@ describe("create", () => {
     const raw = await zdb.getRawDocument(post);
     console.log("raw", zdb.getCollection("Post"));
 
-    const test = await zdb.getCollection("Post").findOne(post._id);
     const dPost = await zdb.hydrate("Post", (col) => col.findOne(post._id));
     const dAuthor = await dPost?.author.resolveFull();
     const dPhoto = await dAuthor?.photo?.resolveFull();
-
-    console.log("existing", dAuthor?.photo?.getExisting());
 
     expectDocumentsToMatch(dPost, post);
     expectDocumentsToMatch(dAuthor, user);

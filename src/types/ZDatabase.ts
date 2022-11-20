@@ -47,11 +47,7 @@ export class ZDatabase<Definitions extends DefinitionsType = {}> {
     return this.globalInstance;
   }
 
-  constructor(private db: Db) {
-    db.collection("", {
-      serializeFunctions: true,
-    });
-  }
+  constructor(private db: Db) {}
 
   addDefinition<CollectionDef extends ZCollectionDefinition<any, any>>(
     definition: CollectionDef
@@ -160,11 +156,11 @@ export class ZDatabase<Definitions extends DefinitionsType = {}> {
       | null
       | ((
           collection: Collection<ZRawDocumentType<Definitions[DefName]>>
-        ) => Doc | null)
+        ) => Doc | Promise<Doc> | null)
   ) {
     let finalDoc: Doc | null;
     if (typeof doc === "function") {
-      finalDoc = doc(this.getCollection(defName));
+      finalDoc = await doc(this.getCollection(defName));
     } else {
       finalDoc = doc;
     }
