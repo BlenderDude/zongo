@@ -137,11 +137,11 @@ export class ZDatabase<Definitions extends DefinitionsType = {}> {
       | Doc[]
       | ((
           collection: Collection<ZRawDocumentType<Definitions[DefName]>>
-        ) => Doc[])
+        ) => Doc[] | Promise<Doc[]>)
   ): Promise<z.output<ZCollectionBranded<Definitions[DefName]>>[]> {
     let resolvedDocs: Doc[];
     if (typeof docs === "function") {
-      resolvedDocs = docs(this.getCollection(defName));
+      resolvedDocs = await docs(this.getCollection(defName));
     } else {
       resolvedDocs = docs;
     }
