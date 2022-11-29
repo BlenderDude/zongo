@@ -13,7 +13,11 @@ import {
 } from "./ZCollectionDefinition";
 import { ZDocumentReference } from "./ZDocumentReference";
 import { createZLazyDocument } from "./ZLazyDocument";
-import { ZPartialDefinition, ZPartialSchema } from "./ZPartialDefinition";
+import {
+  ZPartialDefinition,
+  ZPartialName,
+  ZPartialSchema,
+} from "./ZPartialDefinition";
 
 type CreateDocumentParam<
   Definitions extends DefinitionsType,
@@ -47,6 +51,8 @@ type PartialsType = {
   [key: string]: ZPartialDefinition<any, any>;
 };
 
+type Merge<T> = T extends infer U ? { [K in keyof U]: U[K] } : never;
+
 export class ZDatabase<
   Definitions extends DefinitionsType = {},
   Partials extends PartialsType = {}
@@ -78,9 +84,11 @@ export class ZDatabase<
   addDefinition<CollectionDef extends ZCollectionDefinition<any, any>>(
     definition: CollectionDef
   ): ZDatabase<
-    Definitions & {
-      [key in ZCollectionModelName<CollectionDef>]: CollectionDef;
-    },
+    Merge<
+      Definitions & {
+        [key in ZCollectionModelName<CollectionDef>]: CollectionDef;
+      }
+    >,
     Partials
   > {
     definition.zdb = this;
@@ -89,12 +97,12 @@ export class ZDatabase<
     return this as any;
   }
 
-  addPartial<
-    Name extends string,
-    PartialDef extends ZPartialDefinition<Name, any>
-  >(
+  addPartial<PartialDef extends ZPartialDefinition<any, any>>(
     definition: PartialDef
-  ): ZDatabase<Definitions, Partials & { [key in Name]: PartialDef }> {
+  ): ZDatabase<
+    Definitions,
+    Merge<Partials & { [key in ZPartialName<PartialDef>]: PartialDef }>
+  > {
     definition.zdb = this;
     this.partials.set(definition.name, definition);
 

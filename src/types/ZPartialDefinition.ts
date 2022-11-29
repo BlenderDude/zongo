@@ -21,3 +21,6 @@ export class ZPartialDefinition<
 
 export type ZPartialSchema<T extends ZPartialDefinition<any, any>> =
   T extends ZPartialDefinition<any, infer S> ? S : never;
+
+export type ZPartialName<T extends ZPartialDefinition<any, any>> =
+  T extends ZPartialDefinition<infer N, any> ? N : never;
