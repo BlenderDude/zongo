@@ -6,6 +6,7 @@ export {
   ZCollectionUnbranded,
   ZCollectionModelName,
 } from "./types/ZCollectionDefinition";
+export { ZPartialDefinition, ZPartialSchema } from "./types/ZPartialDefinition";
 export { ZDatabase } from "./types/ZDatabase";
 export { ZDocumentReference } from "./types/ZDocumentReference";
 export * from "./create";

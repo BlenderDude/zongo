@@ -7,8 +7,8 @@ export class ZCollectionDefinition<
 > {
   public collection: string;
   public schema: z.ZodBranded<Schema, ModelName>;
-  private _zdb: ZDatabase<any> | null = null;
-  set zdb(val: ZDatabase<any>) {
+  private _zdb: ZDatabase<any, any> | null = null;
+  set zdb(val: ZDatabase<any, any>) {
     this._zdb = val;
   }
   get zdb() {
@@ -49,10 +49,6 @@ export class ZCollectionDefinition<
     }
     console.error(schema);
     throw new Error("Invalid schema");
-  }
-
-  create(input: z.infer<Schema>): z.infer<Schema> {
-    return this.schema.parse(input);
   }
 }
 

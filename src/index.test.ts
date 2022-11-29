@@ -33,7 +33,7 @@ function createZdb(db: Db) {
       _id: zg.zObjectId(),
       name: z.string(),
       photo: zg.zEmbeddedSchema
-        .partial(photoDefinition, {
+        .partial(() => photoDefinition, {
           url: true,
         })
         .nullable(),
@@ -44,8 +44,8 @@ function createZdb(db: Db) {
     z.object({
       _id: zg.zObjectId(),
       name: z.string(),
-      author: zg.zEmbeddedSchema.full(userDefinition),
-      photos: z.array(zg.zEmbeddedSchema.full(photoDefinition)),
+      author: zg.zEmbeddedSchema.full(() => userDefinition),
+      photos: z.array(zg.zEmbeddedSchema.full(() => photoDefinition)),
     })
   );
   const discriminatedDefinition = new zg.ZCollectionDefinition(
@@ -67,7 +67,7 @@ function createZdb(db: Db) {
     "RefToDiscriminatedUnion",
     z.object({
       _id: zg.zObjectId(),
-      testRef: zg.zEmbeddedSchema.full(discriminatedDefinition),
+      testRef: zg.zEmbeddedSchema.full(() => discriminatedDefinition),
     })
   );
   const zdb = new zg.ZDatabase(db)

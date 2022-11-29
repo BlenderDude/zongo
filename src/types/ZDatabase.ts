@@ -1,10 +1,10 @@
-import { Collection, Db, MongoClient, ObjectId } from "mongodb";
-import { BRAND, z, ZodBigInt } from "zod";
+import { AsyncLocalStorage } from "async_hooks";
+import { Collection, Db, ObjectId } from "mongodb";
+import { BRAND, z } from "zod";
 import {
   RemoveZDefinitions,
   ZSchemaReferenceWrapper,
 } from "../schema/zEmbeddedSchema";
-import { ZCollection } from "./ZCollection";
 import {
   ZCollectionBranded,
   ZCollectionDefinition,
@@ -13,7 +13,7 @@ import {
 } from "./ZCollectionDefinition";
 import { ZDocumentReference } from "./ZDocumentReference";
 import { createZLazyDocument } from "./ZLazyDocument";
-import { AsyncLocalStorage } from "async_hooks";
+import { ZPartialDefinition, ZPartialSchema } from "./ZPartialDefinition";
 
 type CreateDocumentParam<
   Definitions extends DefinitionsType,
@@ -27,20 +27,41 @@ type CreateDocumentParam<
   }
 >;
 
+type CreatePartialParam<
+  Definitions extends DefinitionsType,
+  Partial extends z.ZodSchema
+> = RemoveZDefinitions<
+  Omit<z.input<Partial>, typeof BRAND>,
+  {
+    [DefName in keyof Definitions]:
+      | ObjectId
+      | ZDocumentReference<Definitions[DefName], any, any>;
+  }
+>;
+
 type DefinitionsType = {
   [key: string]: ZCollectionDefinition<any, any>;
 };
 
-export class ZDatabase<Definitions extends DefinitionsType = {}> {
+type PartialsType = {
+  [key: string]: ZPartialDefinition<any, any>;
+};
+
+export class ZDatabase<
+  Definitions extends DefinitionsType = {},
+  Partials extends PartialsType = {}
+> {
   private definitions = new Map<
     keyof Definitions,
     ZCollectionDefinition<any, any>
   >();
 
-  private static als = new AsyncLocalStorage<ZDatabase<any>>();
-  private static globalInstance: ZDatabase<any> | undefined = undefined;
+  private partials = new Map<keyof Partials, ZPartialDefinition<any, any>>();
 
-  public static setGlobalInstance(instance: ZDatabase<any>) {
+  private static als = new AsyncLocalStorage<ZDatabase<any, any>>();
+  private static globalInstance: ZDatabase<any, any> | undefined = undefined;
+
+  public static setGlobalInstance(instance: ZDatabase<any, any>) {
     ZDatabase.globalInstance = instance;
   }
 
@@ -59,10 +80,23 @@ export class ZDatabase<Definitions extends DefinitionsType = {}> {
   ): ZDatabase<
     Definitions & {
       [key in ZCollectionModelName<CollectionDef>]: CollectionDef;
-    }
+    },
+    Partials
   > {
     definition.zdb = this;
     this.definitions.set(definition.modelName, definition);
+
+    return this as any;
+  }
+
+  addPartial<
+    Name extends string,
+    PartialDef extends ZPartialDefinition<Name, any>
+  >(
+    definition: PartialDef
+  ): ZDatabase<Definitions, Partials & { [key in Name]: PartialDef }> {
+    definition.zdb = this;
+    this.partials.set(definition.name, definition);
 
     return this as any;
   }
@@ -92,6 +126,17 @@ export class ZDatabase<Definitions extends DefinitionsType = {}> {
     const resolvedData = await this.getRawDocument<Result>(result);
     await this.getCollection(def).insertOne(resolvedData as any);
     return result;
+  }
+
+  async createPartial<Name extends keyof Partials>(
+    name: Name,
+    data: CreatePartialParam<Definitions, ZPartialSchema<Partials[Name]>>
+  ) {
+    const partial = this.partials.get(name);
+    if (!partial) {
+      throw new Error(`Partial ${String(name)} not found`);
+    }
+    return data;
   }
 
   findOneLazy<Def extends keyof Definitions>(def: Def, id: ObjectId) {
@@ -245,6 +290,8 @@ export class ZDatabase<Definitions extends DefinitionsType = {}> {
           traverseSchema(schema._def.valueType, pathSoFar.concat("$"));
         } else if (schema instanceof z.ZodOptional) {
           traverseSchema(schema.unwrap(), pathSoFar.concat());
+        } else if (schema instanceof z.ZodLazy) {
+          traverseSchema(schema.schema, pathSoFar.concat());
         } else if (schema instanceof z.ZodRecord) {
           throw new Error("ZodRecord not supported");
         } else if (schema instanceof z.ZodMap) {
@@ -263,7 +310,6 @@ export class ZDatabase<Definitions extends DefinitionsType = {}> {
           schema instanceof z.ZodDate ||
           schema instanceof z.ZodFunction ||
           schema instanceof z.ZodPromise ||
-          schema instanceof z.ZodLazy ||
           schema instanceof z.ZodLiteral ||
           schema instanceof z.ZodEnum ||
           schema instanceof z.ZodNativeEnum
