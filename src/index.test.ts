@@ -19,12 +19,20 @@ function expectDocumentsToMatch(actual: any, expected: any) {
 }
 
 function createZdb(db: Db) {
+  const Timestamps = zg.createPartial(
+    "Timestamps",
+    z.object({
+      createdAt: z.date().default(() => new Date()),
+      updatedAt: z.date().default(() => new Date()),
+    })
+  );
   const photoDefinition = new zg.ZCollectionDefinition(
     "Photo",
     z.object({
       _id: zg.zObjectId(),
       url: z.string(),
       description: z.string(),
+      timestamps: zg.zPartial(() => Timestamps),
     })
   );
   const userDefinition = new zg.ZCollectionDefinition(
@@ -39,6 +47,15 @@ function createZdb(db: Db) {
         .nullable(),
     })
   );
+  const AuditEntry = zg.createPartial(
+    "AuditEntry",
+    z.object({
+      user: zg.zEmbeddedSchema.partial(() => userDefinition, {
+        name: true,
+      }),
+      action: z.string(),
+    })
+  );
   const postDefinition = new zg.ZCollectionDefinition(
     "Post",
     z.object({
@@ -46,6 +63,7 @@ function createZdb(db: Db) {
       name: z.string(),
       author: zg.zEmbeddedSchema.full(() => userDefinition),
       photos: z.array(zg.zEmbeddedSchema.full(() => photoDefinition)),
+      audit: z.array(zg.zPartial(() => AuditEntry)),
     })
   );
   const discriminatedDefinition = new zg.ZCollectionDefinition(
@@ -75,7 +93,8 @@ function createZdb(db: Db) {
     .addDefinition(postDefinition)
     .addDefinition(discriminatedDefinition)
     .addDefinition(refToDistDefinition)
-    .addDefinition(photoDefinition);
+    .addDefinition(photoDefinition)
+    .addPartial(AuditEntry);
 
   return zdb;
 }
@@ -119,6 +138,7 @@ describe("create", () => {
       name: "Post 1",
       author: expectedUser,
       photos: [],
+      audit: [],
     };
     await zdb.create("User", expectedUser);
     await zdb.create("Post", expectedPost);
@@ -195,6 +215,7 @@ describe("create", () => {
       _id: new ObjectId(),
       url: "https://example.com",
       description: "test",
+      timestamps: {},
     });
     const user = await zdb.create("User", {
       _id: new ObjectId(),
@@ -206,6 +227,7 @@ describe("create", () => {
       name: "Post 1",
       author: user,
       photos: [photo],
+      audit: [],
     });
 
     const dPost = await zdb.hydrate("Post", (col) =>
@@ -224,7 +246,7 @@ describe("create", () => {
     expect(Array.from(references.keys())).toEqual(["User", "Post"]);
     expect(Array.from(references.get("User")!)).toStrictEqual([
       {
-        mask: ["url", "_id"],
+        mask: ["url"],
         path: "photo",
       },
     ]);
@@ -241,11 +263,13 @@ describe("create", () => {
       _id: new ObjectId(),
       url: "https://example.com",
       description: "test",
+      timestamps: {},
     });
     const photo2 = await zdb.create("Photo", {
       _id: new ObjectId(),
       url: "https://example.com/2",
       description: "test2",
+      timestamps: {},
     });
     const user = await zdb.create("User", {
       _id: new ObjectId(),
@@ -257,18 +281,15 @@ describe("create", () => {
       name: "Post 1",
       author: user,
       photos: [photo, photo2],
+      audit: [],
     });
     const updatedPhoto = {
-      _id: photo._id,
+      ...photo,
       url: "https://example.com/updated",
-      description: "test",
     };
     await zdb
       .getCollection("Photo")
-      .updateOne(
-        { _id: photo._id },
-        { $set: { url: "https://example.com/updated" } }
-      );
+      .updateOne({ _id: photo._id }, { $set: { url: updatedPhoto.url } });
     await zdb.updateReferences("Photo", photo._id);
     const updatedUser = await zdb.getCollection("User").findOne({
       _id: user._id,
@@ -276,8 +297,31 @@ describe("create", () => {
     const updatedPost = await zdb.getCollection("Post").findOne({
       _id: post._id,
     });
-    const { description, ...maskedPhoto } = updatedPhoto;
+    const { description, timestamps, ...maskedPhoto } = updatedPhoto;
     expect(updatedUser?.photo).toEqual(maskedPhoto);
     expect(updatedPost?.photos[0]).toEqual(updatedPhoto);
+  });
+  it("updates partials with references", async () => {
+    const zdb = createZdb(db);
+    const user = await zdb.create("User", {
+      _id: new ObjectId(),
+      name: "Daniel",
+      photo: null,
+    });
+
+    const auditEntry = zdb.createPartial("AuditEntry", {
+      user,
+      action: "create",
+    });
+    const expectedPost = {
+      _id: new ObjectId(),
+      name: "Post 1",
+      author: user,
+      photos: [],
+      audit: [auditEntry],
+    };
+    const post = await zdb.create("Post", expectedPost);
+    expect(post.audit[0].user).toBeInstanceOf(zg.ZDocumentReference);
+    expect(post.audit[0].user.getExisting()._id).toEqual(user._id);
   });
 });

@@ -128,7 +128,7 @@ export class ZDatabase<
     return result;
   }
 
-  async createPartial<Name extends keyof Partials>(
+  createPartial<Name extends keyof Partials>(
     name: Name,
     data: CreatePartialParam<Definitions, ZPartialSchema<Partials[Name]>>
   ) {
@@ -292,6 +292,8 @@ export class ZDatabase<
           traverseSchema(schema.unwrap(), pathSoFar.concat());
         } else if (schema instanceof z.ZodLazy) {
           traverseSchema(schema.schema, pathSoFar.concat());
+        } else if (schema instanceof z.ZodDefault) {
+          traverseSchema(schema.removeDefault(), pathSoFar.concat());
         } else if (schema instanceof z.ZodRecord) {
           throw new Error("ZodRecord not supported");
         } else if (schema instanceof z.ZodMap) {

@@ -1,5 +1,6 @@
 export { zObjectId } from "./schema/zObjectId";
 export { zEmbeddedSchema } from "./schema/zEmbeddedSchema";
+export { zPartial } from "./schema/zPartial";
 export {
   ZCollectionDefinition,
   ZCollectionBranded,
