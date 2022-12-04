@@ -22,12 +22,7 @@ export class ZDocumentReference<
 
   resolve(): ZLazyDocument<Definition> {
     const zdb = this.definition.zdb;
-    return createZLazyDocument(
-      this._id,
-      this.definition,
-      zdb.getCollection(this.definition.modelName),
-      this.existingData
-    );
+    return createZLazyDocument(this._id, this.definition, this.existingData);
   }
 
   async resolveFull(): Promise<z.output<ZCollectionBranded<Definition>>> {

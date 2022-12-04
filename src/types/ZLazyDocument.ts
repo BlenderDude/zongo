@@ -19,7 +19,6 @@ export function createZLazyDocument<
 >(
   _id: ObjectId,
   definition: Definition,
-  collection: Collection<any>,
   existingData?: Record<string, any>
 ): ZLazyDocument<Definition> {
   type FullData = z.infer<ZCollectionBranded<Definition>>;
@@ -68,6 +67,7 @@ export function createZLazyDocument<
         for (const key of keys) {
           projection[key] = 1;
         }
+        const collection = definition.zdb.getCollection(definition.modelName);
         const doc = await collection.findOne(
           { _id },
           {
