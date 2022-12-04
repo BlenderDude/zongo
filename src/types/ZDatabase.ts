@@ -136,6 +136,26 @@ export class ZDatabase<
     return result;
   }
 
+  async replace<Def extends keyof Definitions>(
+    def: Def,
+    data: CreateDocumentParam<Definitions, Def>
+  ) {
+    type Definition = Definitions[Def];
+    const definition = this.definitions.get(def) as Definition | undefined;
+    if (!definition) {
+      throw new Error(`Collection ${String(def)} not found`);
+    }
+    type Result = z.output<ZCollectionBranded<Definition>>;
+
+    const result = (await definition.schema.parseAsync(data)) as Result;
+    const resolvedData = await this.getRawDocument<Result>(result);
+    await this.getCollection(def).replaceOne(
+      { _id: result._id },
+      resolvedData as any
+    );
+    return result;
+  }
+
   createPartial<Name extends keyof Partials>(
     name: Name,
     data: CreatePartialParam<Definitions, ZPartialSchema<Partials[Name]>>
