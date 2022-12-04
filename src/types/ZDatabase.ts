@@ -67,6 +67,14 @@ export class ZDatabase<
   private static als = new AsyncLocalStorage<ZDatabase<any, any>>();
   private static globalInstance: ZDatabase<any, any> | undefined = undefined;
 
+  get definitionNames(): Array<keyof Definitions> {
+    return Array.from(this.definitions.keys());
+  }
+
+  get partialNames(): Array<keyof Partials> {
+    return Array.from(this.partials.keys());
+  }
+
   public static setGlobalInstance(instance: ZDatabase<any, any>) {
     ZDatabase.globalInstance = instance;
   }
