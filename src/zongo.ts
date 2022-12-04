@@ -12,6 +12,7 @@ export {
   ZPartialSchema,
   ZPartialName,
 } from "./types/ZPartialDefinition";
+export { ZLazyDocument, createZLazyDocument } from "./types/ZLazyDocument";
 export { ZDatabase } from "./types/ZDatabase";
 export { ZDocumentReference } from "./types/ZDocumentReference";
 export * from "./create";

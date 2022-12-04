@@ -9,8 +9,8 @@ import { ZDocumentReference } from "./ZDocumentReference";
 
 export type ZLazyDocument<Definition extends ZCollectionDefinition<any, any>> =
   {
-    [K in keyof z.infer<ZCollectionBranded<Definition>>]: Promise<
-      z.infer<ZCollectionBranded<Definition>>[K]
+    [K in keyof z.output<ZCollectionBranded<Definition>>]: Promise<
+      z.output<ZCollectionBranded<Definition>>[K]
     >;
   };
 

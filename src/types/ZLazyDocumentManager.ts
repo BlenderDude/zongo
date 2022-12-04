@@ -11,17 +11,12 @@ export class ZLazyDocumentManager<
   constructor(private lazyDocument: ZLazyDocument<Definition>) {}
 
   async collect<
-    Mask extends {
-      [K in keyof ZLazyDocument<Definition>]?: true;
-    }
+    Keys extends ReadonlyArray<keyof z.output<ZCollectionBranded<Definition>>>
   >(
-    request: Mask
+    keys: Keys
   ): Promise<{
-    [K in keyof Mask]: Mask[K] extends true
-      ? z.infer<ZCollectionBranded<Definition>>[K]
-      : never;
+    [K in Keys[number]]: z.infer<ZCollectionBranded<Definition>>[K];
   }> {
-    const keys = Object.keys(request) as Array<keyof ZLazyDocument<Definition>>;
     const promises = keys.map((key) => this.lazyDocument[key]);
     const resolvedKeyData = await Promise.all(promises);
     const keyEntries = resolvedKeyData.map((data, index) => [
