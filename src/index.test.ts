@@ -88,13 +88,16 @@ function createZdb(db: Db) {
       testRef: zg.zEmbeddedSchema.full(() => discriminatedDefinition),
     })
   );
+
   const zdb = new zg.ZDatabase(db)
     .addDefinition(userDefinition)
     .addDefinition(postDefinition)
-    .addDefinition(discriminatedDefinition)
-    .addDefinition(refToDistDefinition)
-    .addDefinition(photoDefinition)
-    .addPartial(AuditEntry);
+    .addDefinitions([
+      discriminatedDefinition,
+      refToDistDefinition,
+      photoDefinition,
+    ])
+    .addPartials([AuditEntry]);
 
   return zdb;
 }

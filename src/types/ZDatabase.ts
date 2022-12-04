@@ -97,6 +97,24 @@ export class ZDatabase<
     return this as any;
   }
 
+  addDefinitions<
+    NewDefinitions extends readonly ZCollectionDefinition<any, any>[]
+  >(
+    definitions: NewDefinitions
+  ): ZDatabase<
+    Merge<
+      Definitions & {
+        [Definition in NewDefinitions[number] as ZCollectionModelName<Definition>]: Definition;
+      }
+    >,
+    Partials
+  > {
+    for (const definition of definitions) {
+      this.addDefinition(definition);
+    }
+    return this as any;
+  }
+
   addPartial<PartialDef extends ZPartialDefinition<any, any>>(
     definition: PartialDef
   ): ZDatabase<
@@ -106,6 +124,22 @@ export class ZDatabase<
     definition.zdb = this;
     this.partials.set(definition.name, definition);
 
+    return this as any;
+  }
+
+  addPartials<NewPartials extends readonly ZPartialDefinition<any, any>[]>(
+    definitions: NewPartials
+  ): ZDatabase<
+    Definitions,
+    Merge<
+      Partials & {
+        [Definition in NewPartials[number] as ZPartialName<Definition>]: Definition;
+      }
+    >
+  > {
+    for (const definition of definitions) {
+      this.addPartial(definition);
+    }
     return this as any;
   }
 
