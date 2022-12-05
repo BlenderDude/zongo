@@ -18,7 +18,7 @@ function expectDocumentsToMatch(actual: any, expected: any) {
   expect(serialize(actual)).toEqual(serialize(expected));
 }
 
-function createZdb(db: Db) {
+function createZdb(client: MongoClient, db: Db) {
   const Timestamps = zg.createPartial(
     "Timestamps",
     z.object({
@@ -89,7 +89,7 @@ function createZdb(db: Db) {
     })
   );
 
-  const zdb = new zg.ZDatabase(db)
+  const zdb = new zg.ZDatabase(client, db)
     .addDefinition(userDefinition)
     .addDefinition(postDefinition)
     .addDefinitions([
@@ -103,22 +103,22 @@ function createZdb(db: Db) {
 }
 
 describe("create", () => {
-  let connection: MongoClient;
+  let client: MongoClient;
   let db: Db;
 
   beforeEach(async () => {
-    connection = new MongoClient((globalThis as any).__MONGO_URI__ as string);
-    await connection.connect();
-    db = connection.db((globalThis as any).__MONGO_DB_NAME__ as string);
+    client = new MongoClient((globalThis as any).__MONGO_URI__ as string);
+    await client.connect();
+    db = client.db((globalThis as any).__MONGO_DB_NAME__ as string);
     await db.dropDatabase();
   });
 
   afterEach(async () => {
-    await connection.close();
+    await client.close();
   });
 
   it("create a basic zDatabase ", async () => {
-    const zdb = createZdb(db);
+    const zdb = createZdb(client, db);
     const expectedUser = {
       _id: new ObjectId(),
       name: "Daniel",
@@ -130,7 +130,7 @@ describe("create", () => {
   });
 
   it("create a basic zDatabase with a reference", async () => {
-    const zdb = createZdb(db);
+    const zdb = createZdb(client, db);
     const expectedUser = {
       _id: new ObjectId(),
       name: "Daniel",
@@ -154,7 +154,7 @@ describe("create", () => {
   });
 
   it("creates records with discriminated types", async () => {
-    const zdb = createZdb(db);
+    const zdb = createZdb(client, db);
     const expectedA = {
       _id: new ObjectId(),
       _type: "a" as const,
@@ -178,7 +178,7 @@ describe("create", () => {
   });
   describe("discriminated unions", () => {
     it("creates _id reference", async () => {
-      const zdb = createZdb(db);
+      const zdb = createZdb(client, db);
       const expectedA = {
         _id: new ObjectId(),
         _type: "a" as const,
@@ -195,7 +195,7 @@ describe("create", () => {
       expectDocumentsToMatch(await res.testRef.resolveFull(), a);
     });
     it("creates full reference", async () => {
-      const zdb = createZdb(db);
+      const zdb = createZdb(client, db);
       const expectedA = {
         _id: new ObjectId(),
         _type: "a" as const,
@@ -213,7 +213,7 @@ describe("create", () => {
     });
   });
   it("traverses references automatically", async () => {
-    const zdb = createZdb(db);
+    const zdb = createZdb(client, db);
     const photo = await zdb.create("Photo", {
       _id: new ObjectId(),
       url: "https://example.com",
@@ -244,7 +244,7 @@ describe("create", () => {
     expectDocumentsToMatch(dPhoto, photo);
   });
   it("locates references automatically", async () => {
-    const zdb = createZdb(db);
+    const zdb = createZdb(client, db);
     const references = await zdb.getReferences("Photo");
     expect(Array.from(references.keys())).toEqual(["User", "Post"]);
     expect(Array.from(references.get("User")!)).toStrictEqual([
@@ -261,7 +261,7 @@ describe("create", () => {
     ]);
   });
   it("updates references with new document", async () => {
-    const zdb = createZdb(db);
+    const zdb = createZdb(client, db);
     const photo = await zdb.create("Photo", {
       _id: new ObjectId(),
       url: "https://example.com",
@@ -305,7 +305,7 @@ describe("create", () => {
     expect(updatedPost?.photos[0]).toEqual(updatedPhoto);
   });
   it("updates partials with references", async () => {
-    const zdb = createZdb(db);
+    const zdb = createZdb(client, db);
     const user = await zdb.create("User", {
       _id: new ObjectId(),
       name: "Daniel",

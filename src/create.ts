@@ -1,11 +1,11 @@
-import { Db } from "mongodb";
+import { Db, MongoClient } from "mongodb";
 import { z } from "zod";
 import { ZCollectionDefinition } from "./types/ZCollectionDefinition";
 import { ZDatabase } from "./types/ZDatabase";
 import { ZPartialDefinition } from "./types/ZPartialDefinition";
 
-export function createDatabase(db: Db) {
-  return new ZDatabase(db);
+export function createDatabase(client: MongoClient, db: Db) {
+  return new ZDatabase(client, db);
 }
 
 export function createDefinition<

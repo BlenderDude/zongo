@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "async_hooks";
-import { Collection, Db, ObjectId } from "mongodb";
+import { Collection, Db, Filter, MongoClient, ObjectId } from "mongodb";
 import { BRAND, z } from "zod";
 import {
   RemoveZDefinitions,
@@ -87,7 +87,7 @@ export class ZDatabase<
     return this.globalInstance;
   }
 
-  constructor(private db: Db) {}
+  constructor(private client: MongoClient, private db: Db) {}
 
   addDefinition<CollectionDef extends ZCollectionDefinition<any, any>>(
     definition: CollectionDef
@@ -196,6 +196,52 @@ export class ZDatabase<
       resolvedData as any
     );
     return result;
+  }
+
+  async update<Def extends keyof Definitions>(
+    def: Def,
+    _id: ObjectId,
+    data: (
+      current: z.output<ZCollectionBranded<Definitions[Def]>>
+    ) =>
+      | Promise<CreateDocumentParam<Definitions, Def>>
+      | CreateDocumentParam<Definitions, Def>
+  ) {
+    type Definition = Definitions[Def];
+    const definition = this.definitions.get(def) as Definition | undefined;
+    if (!definition) {
+      throw new Error(`Collection ${String(def)} not found`);
+    }
+    type Result = z.output<ZCollectionBranded<Definition>>;
+
+    const session = this.client.startSession();
+
+    try {
+      session.startTransaction();
+
+      const collection = this.getCollection(def) as Collection<any>;
+      const current = await collection.findOne(
+        {
+          _id,
+        },
+        { session }
+      );
+      const result = (await definition.schema.parseAsync(
+        await data(current)
+      )) as Result;
+      const resolvedData = await this.getRawDocument<Result>(result);
+      await this.getCollection(def).replaceOne(
+        { _id: result._id },
+        resolvedData as any,
+        { session }
+      );
+      return result;
+    } catch (e) {
+      await session.abortTransaction();
+      throw e;
+    } finally {
+      await session.endSession();
+    }
   }
 
   createPartial<Name extends keyof Partials>(
