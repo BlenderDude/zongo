@@ -235,6 +235,7 @@ export class ZDatabase<
         resolvedData as any,
         { session }
       );
+      await session.commitTransaction();
       return result;
     } catch (e) {
       await session.abortTransaction();
