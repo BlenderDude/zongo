@@ -201,11 +201,13 @@ export class ZDatabase<
   async update<Def extends keyof Definitions>(
     def: Def,
     _id: ObjectId,
-    data: (
-      current: z.output<ZCollectionBranded<Definitions[Def]>>
-    ) =>
-      | Promise<CreateDocumentParam<Definitions, Def>>
-      | CreateDocumentParam<Definitions, Def>
+    data:
+      | Partial<CreateDocumentParam<Definitions, Def>>
+      | ((
+          current: z.output<ZCollectionBranded<Definitions[Def]>>
+        ) =>
+          | Promise<CreateDocumentParam<Definitions, Def>>
+          | CreateDocumentParam<Definitions, Def>)
   ) {
     type Definition = Definitions[Def];
     const definition = this.definitions.get(def) as Definition | undefined;
@@ -226,9 +228,18 @@ export class ZDatabase<
         },
         { session }
       );
-      const result = (await definition.schema.parseAsync(
-        await data(current)
-      )) as Result;
+
+      let newData: CreateDocumentParam<Definitions, Def>;
+      if (typeof data === "function") {
+        newData = await data(current);
+      } else {
+        newData = {
+          ...current,
+          ...data,
+        };
+      }
+
+      const result = (await definition.schema.parseAsync(newData)) as Result;
       const resolvedData = await this.getRawDocument<Result>(result);
       await this.getCollection(def).replaceOne(
         { _id: result._id },
