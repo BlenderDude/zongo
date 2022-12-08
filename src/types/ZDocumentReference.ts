@@ -24,16 +24,7 @@ export class ZDocumentReference<
     return createZLazyDocument(this._id, this.definition, this.existingData);
   }
 
-  async resolveFull(): Promise<
-    Mask extends undefined
-      ? z.output<ZCollectionBranded<Definition>>
-      : {
-          [K in Extract<
-            keyof z.output<ZCollectionBranded<Definition>>,
-            keyof Mask
-          >]: z.output<ZCollectionBranded<Definition>>[K];
-        }
-  > {
+  async resolveFull(): Promise<z.output<ZCollectionBranded<Definition>>> {
     const zdb = this.definition.zdb;
 
     const modelName = this.definition.modelName;
