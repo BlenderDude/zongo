@@ -54,7 +54,7 @@ export class ZSchemaReferenceWrapper<
 function schemaWrapper<
   Schema extends z.ZodSchema,
   Definition extends ZCollectionDefinition<any, z.ZodSchema>,
-  Mask extends Record<string, true | undefined>
+  Mask extends Record<string, true | undefined> | undefined
 >(schemaThunk: Thunk<Schema>, definitionThunk: Thunk<Definition>, mask?: Mask) {
   const maskArray = Object.keys(mask || {});
 
@@ -98,20 +98,10 @@ function schemaWrapper<
               return new ZDocumentReference(data, definition, doc, mask) as any;
             }
             const doc = await collection.findOne(data);
-            return new ZDocumentReference(
-              data,
-              definition,
-              doc,
-              mask ?? "full"
-            );
+            return new ZDocumentReference(data, definition, doc, mask);
           }
           if (data._id instanceof ObjectId) {
-            return new ZDocumentReference(
-              data._id,
-              definition,
-              data,
-              mask ?? "full"
-            );
+            return new ZDocumentReference(data._id, definition, data, mask);
           }
           throw new Error("Invalid data, must have _id");
         }
@@ -123,13 +113,14 @@ export const zEmbeddedSchema = {
   full: <Definition extends ZCollectionDefinition<any, z.ZodSchema>>(
     definitionThunk: Thunk<Definition>
   ) => {
-    return schemaWrapper<ZCollectionUnbranded<Definition>, Definition, {}>(
-      () => {
-        const definition = resolveThunk(definitionThunk);
-        return definition.schema.unwrap() as ZCollectionUnbranded<Definition>;
-      },
-      definitionThunk
-    );
+    return schemaWrapper<
+      ZCollectionUnbranded<Definition>,
+      Definition,
+      undefined
+    >(() => {
+      const definition = resolveThunk(definitionThunk);
+      return definition.schema.unwrap() as ZCollectionUnbranded<Definition>;
+    }, definitionThunk);
   },
   partial: <
     Definition extends ZCollectionDefinition<any, z.AnyZodObject>,

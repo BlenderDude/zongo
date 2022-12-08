@@ -10,27 +10,35 @@ import { createZLazyDocument, ZLazyDocument } from "./ZLazyDocument";
 
 export class ZDocumentReference<
   Definition extends ZCollectionDefinition<string, z.ZodSchema>,
-  Mask extends Record<string, true | undefined> = never,
+  Mask extends Record<string, true | undefined> | undefined = undefined,
   ExistingData extends Record<string, any> = {}
 > {
   constructor(
     public _id: ObjectId,
     public definition: Definition,
     private existingData: ExistingData,
-    public mask: Mask | "full"
+    public mask: Mask
   ) {}
 
   resolve(): ZLazyDocument<Definition> {
-    const zdb = this.definition.zdb;
     return createZLazyDocument(this._id, this.definition, this.existingData);
   }
 
-  async resolveFull(): Promise<z.output<ZCollectionBranded<Definition>>> {
+  async resolveFull(): Promise<
+    Mask extends undefined
+      ? z.output<ZCollectionBranded<Definition>>
+      : {
+          [K in Extract<
+            keyof z.output<ZCollectionBranded<Definition>>,
+            keyof Mask
+          >]: z.output<ZCollectionBranded<Definition>>[K];
+        }
+  > {
     const zdb = this.definition.zdb;
 
     const modelName = this.definition.modelName;
     const collection = zdb.getCollection(modelName);
-    if (this.mask === "full") {
+    if (this.mask === undefined) {
       return zdb.hydrate(modelName, await collection.findOne(this._id));
     }
     const projection: Record<string, 0> = {};

@@ -211,6 +211,23 @@ describe("create", () => {
       expect(expectedA).toEqual(a);
       expectDocumentsToMatch(await res.testRef.resolveFull(), a);
     });
+    it("creates lazy reference", async () => {
+      const zdb = createZdb(client, db);
+      const expectedA = {
+        _id: new ObjectId(),
+        _type: "a" as const,
+        a: "a",
+      };
+      const a = await zdb.create("DiscriminatedUnion", expectedA);
+
+      const res = await zdb.create("RefToDiscriminatedUnion", {
+        _id: new ObjectId(),
+        testRef: a,
+      });
+
+      const lazyDoc = res.testRef.resolve();
+      expect(await lazyDoc._type).toBe(a._type);
+    });
   });
   it("traverses references automatically", async () => {
     const zdb = createZdb(client, db);
