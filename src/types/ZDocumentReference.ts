@@ -3,9 +3,7 @@ import { z } from "zod";
 import {
   ZCollectionBranded,
   ZCollectionDefinition,
-  ZCollectionModelName,
 } from "./ZCollectionDefinition";
-import { ZDatabase } from "./ZDatabase";
 import { createZLazyDocument, ZLazyDocument } from "./ZLazyDocument";
 
 export class ZDocumentReference<
@@ -13,12 +11,19 @@ export class ZDocumentReference<
   Mask extends Record<string, true | undefined> | undefined = undefined,
   ExistingData extends Record<string, any> = {}
 > {
+  private existingData: ExistingData;
+
   constructor(
     public _id: ObjectId,
     public definition: Definition,
-    private existingData: ExistingData,
+    existingData: ExistingData,
     public mask: Mask
-  ) {}
+  ) {
+    this.existingData = {
+      ...existingData,
+      _id,
+    };
+  }
 
   resolve(): ZLazyDocument<Definition> {
     return createZLazyDocument(this._id, this.definition, this.existingData);

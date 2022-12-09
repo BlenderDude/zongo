@@ -32,7 +32,7 @@ function createZdb(client: MongoClient, db: Db) {
       _id: zg.zObjectId(),
       url: z.string(),
       description: z.string(),
-      timestamps: zg.zPartial(() => Timestamps),
+      timestamps: zg.zPartial(Timestamps),
     })
   );
   const userDefinition = new zg.ZCollectionDefinition(
@@ -41,7 +41,7 @@ function createZdb(client: MongoClient, db: Db) {
       _id: zg.zObjectId(),
       name: z.string(),
       photo: zg.zEmbeddedSchema
-        .partial(() => photoDefinition, {
+        .partial(photoDefinition, {
           url: true,
         })
         .nullable(),
@@ -50,7 +50,7 @@ function createZdb(client: MongoClient, db: Db) {
   const AuditEntry = zg.createPartial(
     "AuditEntry",
     z.object({
-      user: zg.zEmbeddedSchema.partial(() => userDefinition, {
+      user: zg.zEmbeddedSchema.partial(userDefinition, {
         name: true,
       }),
       action: z.string(),
@@ -61,9 +61,9 @@ function createZdb(client: MongoClient, db: Db) {
     z.object({
       _id: zg.zObjectId(),
       name: z.string(),
-      author: zg.zEmbeddedSchema.full(() => userDefinition),
-      photos: z.array(zg.zEmbeddedSchema.full(() => photoDefinition)),
-      audit: z.array(zg.zPartial(() => AuditEntry)),
+      author: zg.zEmbeddedSchema.full(userDefinition),
+      photos: z.array(zg.zEmbeddedSchema.full(photoDefinition)),
+      audit: z.array(zg.zPartial(AuditEntry)),
     })
   );
   const discriminatedDefinition = new zg.ZCollectionDefinition(
@@ -85,7 +85,12 @@ function createZdb(client: MongoClient, db: Db) {
     "RefToDiscriminatedUnion",
     z.object({
       _id: zg.zObjectId(),
-      testRef: zg.zEmbeddedSchema.full(() => discriminatedDefinition),
+      testRef: zg.zEmbeddedSchema.full(discriminatedDefinition),
+      testPartialRef: zg.zEmbeddedSchema.partial(discriminatedDefinition, {
+        _type: true,
+        a: true,
+        b: true,
+      }),
     })
   );
 
@@ -189,6 +194,7 @@ describe("create", () => {
       const res = await zdb.create("RefToDiscriminatedUnion", {
         _id: new ObjectId(),
         testRef: a._id,
+        testPartialRef: a._id,
       });
 
       expect(expectedA).toEqual(a);
@@ -206,10 +212,28 @@ describe("create", () => {
       const res = await zdb.create("RefToDiscriminatedUnion", {
         _id: new ObjectId(),
         testRef: a,
+        testPartialRef: a,
       });
 
       expect(expectedA).toEqual(a);
       expectDocumentsToMatch(await res.testRef.resolveFull(), a);
+    });
+    it("creates discriminated existing data", async () => {
+      const zdb = createZdb(client, db);
+      const expectedA = {
+        _id: new ObjectId(),
+        _type: "a" as const,
+        a: "a",
+      };
+      const a = await zdb.create("DiscriminatedUnion", expectedA);
+
+      const res = await zdb.create("RefToDiscriminatedUnion", {
+        _id: new ObjectId(),
+        testRef: a,
+        testPartialRef: a,
+      });
+
+      expect(res.testPartialRef.getExisting()).toEqual(expectedA);
     });
     it("creates lazy reference", async () => {
       const zdb = createZdb(client, db);
@@ -223,6 +247,7 @@ describe("create", () => {
       const res = await zdb.create("RefToDiscriminatedUnion", {
         _id: new ObjectId(),
         testRef: a,
+        testPartialRef: a,
       });
 
       const lazyDoc = res.testRef.resolve();
@@ -266,7 +291,9 @@ describe("create", () => {
     expect(Array.from(references.keys())).toEqual(["User", "Post"]);
     expect(Array.from(references.get("User")!)).toStrictEqual([
       {
-        mask: ["url"],
+        mask: {
+          url: true,
+        },
         path: "photo",
       },
     ]);
@@ -329,16 +356,17 @@ describe("create", () => {
       photo: null,
     });
 
-    const auditEntry = zdb.createPartial("AuditEntry", {
-      user,
-      action: "create",
-    });
     const expectedPost = {
       _id: new ObjectId(),
       name: "Post 1",
       author: user,
       photos: [],
-      audit: [auditEntry],
+      audit: [
+        {
+          user,
+          action: "create",
+        },
+      ],
     };
     const post = await zdb.create("Post", expectedPost);
     expect(post.audit[0].user).toBeInstanceOf(zg.ZDocumentReference);

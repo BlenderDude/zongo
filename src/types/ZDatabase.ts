@@ -1,10 +1,7 @@
 import { AsyncLocalStorage } from "async_hooks";
 import { Collection, Db, Filter, MongoClient, ObjectId } from "mongodb";
 import { BRAND, z } from "zod";
-import {
-  RemoveZDefinitions,
-  ZSchemaReferenceWrapper,
-} from "../schema/zEmbeddedSchema";
+import { ZSchemaReferenceWrapper } from "../schema/zEmbeddedSchema";
 import {
   ZCollectionBranded,
   ZCollectionDefinition,
@@ -22,26 +19,7 @@ import {
 type CreateDocumentParam<
   Definitions extends DefinitionsType,
   Def extends keyof Definitions
-> = RemoveZDefinitions<
-  Omit<z.input<ZCollectionBranded<Definitions[Def]>>, typeof BRAND>,
-  {
-    [DefName in keyof Definitions]:
-      | ObjectId
-      | ZDocumentReference<Definitions[DefName], any, any>;
-  }
->;
-
-type CreatePartialParam<
-  Definitions extends DefinitionsType,
-  Partial extends z.ZodSchema
-> = RemoveZDefinitions<
-  Omit<z.input<Partial>, typeof BRAND>,
-  {
-    [DefName in keyof Definitions]:
-      | ObjectId
-      | ZDocumentReference<Definitions[DefName], any, any>;
-  }
->;
+> = Omit<z.input<ZCollectionBranded<Definitions[Def]>>, typeof BRAND>;
 
 type DefinitionsType = {
   [key: string]: ZCollectionDefinition<any, any>;
@@ -256,17 +234,6 @@ export class ZDatabase<
     }
   }
 
-  createPartial<Name extends keyof Partials>(
-    name: Name,
-    data: CreatePartialParam<Definitions, ZPartialSchema<Partials[Name]>>
-  ) {
-    const partial = this.partials.get(name);
-    if (!partial) {
-      throw new Error(`Partial ${String(name)} not found`);
-    }
-    return data;
-  }
-
   findOneLazy<Def extends keyof Definitions>(def: Def, id: ObjectId) {
     const definition = this.definitions.get(def);
     if (!definition) {
@@ -372,7 +339,7 @@ export class ZDatabase<
       keyof Definitions,
       Array<{
         path: string;
-        mask?: string[];
+        mask?: Record<string, boolean>;
       }>
     >();
 
@@ -474,7 +441,7 @@ export class ZDatabase<
         const _id = resolvedDocument._id as ObjectId;
         const idPath = `${ref.path}._id`;
         const updateKeys: Record<string, any> = {};
-        for (const key of ref.mask ?? Object.keys(resolvedDocument)) {
+        for (const key of Object.keys(ref.mask ?? resolvedDocument)) {
           updateKeys[`${ref.path}.${key}`] = resolvedDocument[key];
         }
         function buildFilter(pathParts: string[]): any {

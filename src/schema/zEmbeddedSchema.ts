@@ -1,196 +1,145 @@
 import { ObjectId } from "mongodb";
-import {
-  ParseInput,
-  ParseReturnType,
-  z,
-  ZodBrandedDef,
-  ZodObject,
-  ZodType,
-} from "zod";
+import { AsyncParseReturnType, OK, ParseInput, z, ZodType } from "zod";
 import {
   ZCollectionDefinition,
-  ZCollectionModelName,
   ZCollectionUnbranded,
 } from "../types/ZCollectionDefinition";
+import { ResolveZReferences } from "../types/ZDatabase";
 import { ZDocumentReference } from "../types/ZDocumentReference";
-import { zObjectId } from "./zObjectId";
-import { Thunk, resolveThunk } from "../util";
-
-type RemoveBrand<T> = T extends z.ZodBranded<infer S, any> ? S : never;
-
-export const DEF_NAME_SYM: unique symbol = Symbol("DEF_NAME_SYM");
-
-type DefNameBrand<DefName extends string> = {
-  [DEF_NAME_SYM]: DefName;
-};
+import { createZLazyDocument } from "../zongo";
 
 export class ZSchemaReferenceWrapper<
-  Schema extends z.ZodSchema,
-  Definition extends ZCollectionDefinition<any, z.ZodSchema>
-> extends ZodType<
-  Schema["_output"] & DefNameBrand<ZCollectionModelName<Definition>>,
-  ZodBrandedDef<Schema>,
-  Schema["_input"] & DefNameBrand<ZCollectionModelName<Definition>>
-> {
-  constructor(
-    public definition: Definition,
-    public mask: string[] | undefined,
-    def: z.ZodBrandedDef<any>
-  ) {
-    super(def);
-  }
-
-  _parse(input: ParseInput): ParseReturnType<any> {
-    const { ctx } = this._processInputParams(input);
-    const data = ctx.data;
-    return this._def.type._parse({
-      data,
-      path: ctx.path,
-      parent: ctx,
-    });
-  }
-}
-
-function schemaWrapper<
-  Schema extends z.ZodSchema,
   Definition extends ZCollectionDefinition<any, z.ZodSchema>,
-  Mask extends Record<string, true | undefined> | undefined
->(schemaThunk: Thunk<Schema>, definitionThunk: Thunk<Definition>, mask?: Mask) {
-  const maskArray = Object.keys(mask || {});
+  Mask extends Record<string, true | undefined> | undefined = undefined,
+  ExistingData extends Record<string, any> = {}
+> extends ZodType<
+  ZDocumentReference<Definition, Mask, ExistingData>,
+  {},
+  ObjectId | { _id: ObjectId } | ZDocumentReference<any, any, any>
+> {
+  constructor(public definition: Definition, public mask: Mask) {
+    super({});
+  }
 
-  return z.lazy(() => {
-    const schema = resolveThunk(schemaThunk);
-    const definition = resolveThunk(definitionThunk);
-    return z
-      .union([
-        zObjectId(),
-        z.instanceof(ZDocumentReference),
-        new ZSchemaReferenceWrapper<Schema, Definition>(
-          definition,
-          mask ? maskArray : undefined,
-          {
-            type: schema,
-            typeName: z.ZodFirstPartyTypeKind.ZodBranded,
-          }
-        ),
-      ])
-      .transform<ZDocumentReference<Definition, Mask, z.output<Schema>>>(
-        async (
-          data: z.output<Schema> | ObjectId | ZDocumentReference<any, any, any>
-        ) => {
-          if (data instanceof ZDocumentReference) {
-            return data;
-          }
-          // If object is ID, then resolve reference to minimal required data
-          if (data instanceof ObjectId) {
-            const { zdb } = definition;
-            const collection = zdb.getCollection(definition.modelName);
-            if (mask !== undefined) {
-              const projection: Record<string, 1> = {};
-              for (const key in mask) {
-                if (mask[key] === true) {
-                  projection[key] = 1;
-                }
-              }
-              const doc = await collection.findOne(data, {
-                projection,
-              });
-              return new ZDocumentReference(data, definition, doc, mask) as any;
-            }
-            const doc = await collection.findOne(data);
-            return new ZDocumentReference(data, definition, doc, mask);
-          }
-          if (data._id instanceof ObjectId) {
-            return new ZDocumentReference(data._id, definition, data, mask);
-          }
-          throw new Error("Invalid data, must have _id");
-        }
+  async _parse(
+    input: ParseInput
+  ): AsyncParseReturnType<ZDocumentReference<any, any, any>> {
+    const { ctx } = this._processInputParams(input);
+    if (!ctx.common.async) {
+      throw new Error(
+        "ZSchemaReferenceWrapper must be used with async parsing"
       );
-  });
+    }
+    const data = ctx.data as
+      | ObjectId
+      | { _id: ObjectId }
+      | ZDocumentReference<any, any, any>;
+    if (this.mask !== undefined) {
+      const mask = this.mask;
+      const requiredKeys = new Set<string>(
+        Object.keys(mask).filter((k) => mask[k])
+      );
+      if (data instanceof ObjectId) {
+        const lazyDocument = createZLazyDocument(
+          data,
+          this.definition,
+          undefined
+        );
+        const requiredData = {} as Record<string, any>;
+        const promises: Promise<any>[] = [];
+        for (const key of requiredKeys) {
+          promises.push(
+            lazyDocument[key].then((value) => {
+              requiredData[key] = value;
+            })
+          );
+        }
+        await Promise.all(promises);
+        return OK(
+          new ZDocumentReference(data, this.definition, requiredData, this.mask)
+        );
+      }
+      let existingData: Record<string, any>;
+      if (data instanceof ZDocumentReference) {
+        existingData = data.getExisting();
+      } else {
+        existingData = data;
+      }
+      const requiredData = {} as Record<string, any>;
+      for (const key of requiredKeys) {
+        requiredData[key] = existingData[key];
+      }
+      return OK(
+        new ZDocumentReference(
+          data._id,
+          this.definition,
+          requiredData,
+          this.mask
+        )
+      );
+    }
+    let _id: ObjectId;
+    if (data instanceof ObjectId) {
+      _id = data;
+    } else {
+      _id = data._id;
+    }
+
+    const document = await this.definition.zdb
+      .getCollection(this.definition.modelName)
+      .findOne({ _id });
+
+    return OK(
+      new ZDocumentReference(_id, this.definition, document, this.mask)
+    );
+  }
 }
+
+type UnionOfKeys<T> = T extends any ? keyof T : never;
+
+type DistributiveSelectivePick<T, K extends keyof T> = T extends unknown
+  ? {
+      [Key in keyof Pick<T, Extract<K, keyof T>>]: Pick<T, K>[Key];
+    }
+  : never;
 
 export const zEmbeddedSchema = {
   full: <Definition extends ZCollectionDefinition<any, z.ZodSchema>>(
-    definitionThunk: Thunk<Definition>
+    definition: Definition
   ) => {
-    return schemaWrapper<
-      ZCollectionUnbranded<Definition>,
+    return new ZSchemaReferenceWrapper<
       Definition,
-      undefined
-    >(() => {
-      const definition = resolveThunk(definitionThunk);
-      return definition.schema.unwrap() as ZCollectionUnbranded<Definition>;
-    }, definitionThunk);
+      undefined,
+      ResolveZReferences<z.output<Definition["schema"]>>
+    >(definition, undefined);
   },
   partial: <
-    Definition extends ZCollectionDefinition<any, z.AnyZodObject>,
+    Definition extends ZCollectionDefinition<any, z.ZodSchema>,
     Mask extends {
-      [key in keyof Omit<
-        RemoveBrand<Definition["schema"]>["shape"],
+      [key in Exclude<
+        UnionOfKeys<z.output<ZCollectionUnbranded<Definition>>>,
         "_id"
       >]?: true;
     }
   >(
-    definitionThunk: Thunk<Definition>,
+    definition: Definition,
     mask: Mask
   ) => {
-    type S = ZCollectionUnbranded<Definition>;
-
-    return schemaWrapper<
-      ZodObject<
-        Pick<S["shape"], Extract<keyof S["shape"], keyof Mask> | "_id">,
-        any,
-        any
-      >,
-      Definition,
-      Mask
-    >(
-      () => {
-        const definition = resolveThunk(definitionThunk);
-        const unbrandedSchema = definition.schema.unwrap() as S;
-        return unbrandedSchema.pick(
-          Object.assign(mask, { _id: true })
-        ) as ZodObject<
-          Pick<S["shape"], Extract<keyof S["shape"], keyof Mask> | "_id">,
-          any,
-          any
-        >;
-      },
-      definitionThunk,
+    type MaskedOutput = DistributiveSelectivePick<
+      z.output<ZCollectionUnbranded<Definition>>,
+      keyof Mask | "_id"
+    >;
+    return new ZSchemaReferenceWrapper<Definition, Mask, MaskedOutput>(
+      definition,
       mask
     );
   },
   ref: <Definition extends ZCollectionDefinition<any, z.ZodSchema>>(
-    definitionThunk: Thunk<Definition>
+    definition: Definition
   ) => {
-    const refSchema = z.object({
-      _id: zObjectId(),
-    });
-    return schemaWrapper<typeof refSchema, Definition, {}>(
-      () => refSchema,
-      definitionThunk
+    return new ZSchemaReferenceWrapper<Definition, {}, { _id: ObjectId }>(
+      definition,
+      {}
     );
   },
 };
-
-export type RemoveZDefinitions<
-  T,
-  EmbeddedSubstitute extends Record<string, any>
-> = T extends ObjectId | Buffer | Date
-  ? T
-  : T extends Array<infer U>
-  ? Array<RemoveZDefinitions<U, EmbeddedSubstitute>>
-  : T extends { [DEF_NAME_SYM]: infer DefName }
-  ?
-      | (DefName extends string ? EmbeddedSubstitute[DefName] : never)
-      | {
-          [K in keyof Omit<T, typeof DEF_NAME_SYM>]: RemoveZDefinitions<
-            T[K],
-            EmbeddedSubstitute
-          >;
-        }
-  : T extends object
-  ? {
-      [K in keyof T]: RemoveZDefinitions<T[K], EmbeddedSubstitute>;
-    }
-  : T;
