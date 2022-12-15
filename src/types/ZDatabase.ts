@@ -245,7 +245,7 @@ export class ZDatabase<
         { session }
       );
       if (computedOptions.updateReferences) {
-        await this.updateReferences(def, result, { session });
+        await this.updateReferences(def, result._id, { session });
       }
       if (!computedOptions.session) {
         await session.commitTransaction();
@@ -460,6 +460,9 @@ export class ZDatabase<
     const document = await collection.findOne({
       _id,
     });
+    if (!document) {
+      throw new Error(`Document ${String(_id)} not found`);
+    }
     const definition = this.definitions.get(defName) as Definitions[DefName];
     const resolvedDocument = await this.getRawDocument(
       await definition.schema.parseAsync(document)
@@ -467,6 +470,9 @@ export class ZDatabase<
     const session = computedOptions.session ?? this.client.startSession();
 
     try {
+      if (!computedOptions.session) {
+        session.startTransaction();
+      }
       const references = await this.getReferences(defName);
       for (const [refDefName, collectionRefs] of references.entries()) {
         for (const ref of collectionRefs) {
