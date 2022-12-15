@@ -117,8 +117,8 @@ export const zEmbeddedSchema = {
     Definition extends ZCollectionDefinition<any, z.ZodSchema>,
     Mask extends {
       [key in Exclude<
-        UnionOfKeys<z.output<ZCollectionUnbranded<Definition>>>,
-        "_id"
+        UnionOfKeys<z.output<Definition["schema"]>>,
+        "_id" | typeof z.BRAND
       >]?: true;
     }
   >(

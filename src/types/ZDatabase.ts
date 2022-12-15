@@ -1,5 +1,12 @@
 import { AsyncLocalStorage } from "async_hooks";
-import { Collection, Db, Filter, MongoClient, ObjectId } from "mongodb";
+import {
+  ClientSession,
+  Collection,
+  Db,
+  Filter,
+  MongoClient,
+  ObjectId,
+} from "mongodb";
 import { BRAND, z } from "zod";
 import { ZSchemaReferenceWrapper } from "../schema/zEmbeddedSchema";
 import {
@@ -185,8 +192,15 @@ export class ZDatabase<
           current: z.output<ZCollectionBranded<Definitions[Def]>>
         ) =>
           | Promise<CreateDocumentParam<Definitions, Def>>
-          | CreateDocumentParam<Definitions, Def>)
+          | CreateDocumentParam<Definitions, Def>),
+    options?: Partial<{ updateReferences: boolean; session: ClientSession }>
   ) {
+    const computedOptions = Object.assign(
+      {
+        updateReferences: true,
+      },
+      options ?? {}
+    );
     type Definition = Definitions[Def];
     const definition = this.definitions.get(def) as Definition | undefined;
     if (!definition) {
@@ -194,10 +208,12 @@ export class ZDatabase<
     }
     type Result = z.output<ZCollectionBranded<Definition>>;
 
-    const session = this.client.startSession();
+    const session = computedOptions.session ?? this.client.startSession();
 
     try {
-      session.startTransaction();
+      if (!computedOptions.session) {
+        session.startTransaction();
+      }
 
       const collection = this.getCollection(def) as Collection<any>;
       const current = await collection.findOne(
@@ -224,13 +240,22 @@ export class ZDatabase<
         resolvedData as any,
         { session }
       );
-      await session.commitTransaction();
+      if (computedOptions.updateReferences) {
+        await this.updateReferences(def, result, { session });
+      }
+      if (!computedOptions.session) {
+        await session.commitTransaction();
+      }
       return result;
     } catch (e) {
-      await session.abortTransaction();
+      if (!computedOptions.session) {
+        await session.abortTransaction();
+      }
       throw e;
     } finally {
-      await session.endSession();
+      if (!computedOptions.session) {
+        await session.endSession();
+      }
     }
   }
 
@@ -423,8 +448,10 @@ export class ZDatabase<
 
   async updateReferences<DefName extends keyof Definitions>(
     defName: DefName,
-    _id: ObjectId
+    _id: ObjectId,
+    options?: Partial<{ session: ClientSession }>
   ) {
+    const computedOptions = Object.assign({}, options);
     const collection = this.getCollection(defName) as Collection<any>;
     const document = await collection.findOne({
       _id,
@@ -433,38 +460,53 @@ export class ZDatabase<
     const resolvedDocument = await this.getRawDocument(
       await definition.schema.parseAsync(document)
     );
+    const session = computedOptions.session ?? this.client.startSession();
 
-    const references = await this.getReferences(defName);
-    for (const [refDefName, collectionRefs] of references.entries()) {
-      for (const ref of collectionRefs) {
-        const collection = this.getCollection(refDefName) as Collection<any>;
-        const _id = resolvedDocument._id as ObjectId;
-        const idPath = `${ref.path}._id`;
-        const updateKeys: Record<string, any> = {};
-        for (const key of Object.keys(ref.mask ?? resolvedDocument)) {
-          updateKeys[`${ref.path}.${key}`] = resolvedDocument[key];
-        }
-        function buildFilter(pathParts: string[]): any {
-          if (pathParts.length === 0) {
-            return _id;
+    try {
+      const references = await this.getReferences(defName);
+      for (const [refDefName, collectionRefs] of references.entries()) {
+        for (const ref of collectionRefs) {
+          const collection = this.getCollection(refDefName) as Collection<any>;
+          const _id = resolvedDocument._id as ObjectId;
+          const idPath = `${ref.path}._id`;
+          const updateKeys: Record<string, any> = {};
+          for (const key of Object.keys(ref.mask ?? resolvedDocument)) {
+            updateKeys[`${ref.path}.${key}`] = resolvedDocument[key];
           }
-          for (const [index, part] of pathParts.entries()) {
-            if (part === "$") {
-              return {
-                [pathParts.slice(0, index).join(".")]: {
-                  $elemMatch: buildFilter(pathParts.slice(index + 1)),
-                },
-              };
+          function buildFilter(pathParts: string[]): any {
+            if (pathParts.length === 0) {
+              return _id;
             }
+            for (const [index, part] of pathParts.entries()) {
+              if (part === "$") {
+                return {
+                  [pathParts.slice(0, index).join(".")]: {
+                    $elemMatch: buildFilter(pathParts.slice(index + 1)),
+                  },
+                };
+              }
+            }
+            return {
+              [pathParts.join(".")]: buildFilter([]),
+            };
           }
-          return {
-            [pathParts.join(".")]: buildFilter([]),
-          };
+          const filter = buildFilter(idPath.split("."));
+          await collection.updateMany(filter, {
+            $set: updateKeys,
+          });
         }
-        const filter = buildFilter(idPath.split("."));
-        await collection.updateMany(filter, {
-          $set: updateKeys,
-        });
+      }
+      if (!computedOptions.session) {
+        await session.commitTransaction();
+      }
+    } catch (e) {
+      if (!computedOptions.session) {
+        await session.abortTransaction();
+      }
+      throw e;
+    } finally {
+      if (!computedOptions.session) {
+        await session.endSession();
       }
     }
   }
