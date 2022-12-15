@@ -223,6 +223,10 @@ export class ZDatabase<
         { session }
       );
 
+      if (!current) {
+        throw new Error(`Document ${String(_id)} not found`);
+      }
+
       let newData: CreateDocumentParam<Definitions, Def>;
       if (typeof data === "function") {
         newData = await data(current);
