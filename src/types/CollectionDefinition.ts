@@ -1,14 +1,14 @@
 import { z, ZodRawShape } from "zod";
-import { ResolveZReferences, ZDatabase } from "./ZDatabase";
+import { ResolveZReferences as ResolveReferences, Database } from "./Database";
 
-export class ZCollectionDefinition<
+export class CollectionDefinition<
   ModelName extends string,
   Schema extends z.ZodSchema
 > {
   public collection: string;
   public schema: z.ZodBranded<Schema, ModelName>;
-  private _zdb: ZDatabase<any, any> | null = null;
-  set zdb(val: ZDatabase<any, any>) {
+  private _zdb: Database<any, any> | null = null;
+  set zdb(val: Database<any, any>) {
     this._zdb = val;
   }
   get zdb() {
@@ -152,31 +152,26 @@ export class ZCollectionDefinition<
   }
 }
 
-// export type ZCollectionShape<T> = T extends ZCollectionDefinition<any, infer S>
-//   ? S["shape"]
-//   : never;
-
-export type ZCollectionUnbranded<T> = T extends ZCollectionDefinition<
+export type CollectionUnbranded<T> = T extends CollectionDefinition<
   any,
   infer S
 >
   ? S
   : never;
 
-export type ZCollectionBranded<T> = T extends ZCollectionDefinition<
+export type CollectionBranded<T> = T extends CollectionDefinition<
   infer M,
   infer S
 >
   ? z.ZodBranded<S, M>
   : never;
 
-export type ZCollectionModelName<T> = T extends ZCollectionDefinition<
+export type CollectionModelName<T> = T extends CollectionDefinition<
   infer M,
   any
 >
   ? M
   : never;
 
-export type ZRawDocumentType<
-  Definition extends ZCollectionDefinition<any, any>
-> = ResolveZReferences<z.output<ZCollectionBranded<Definition>>>;
+export type RawDocumentType<Definition extends CollectionDefinition<any, any>> =
+  ResolveReferences<z.output<CollectionBranded<Definition>>>;

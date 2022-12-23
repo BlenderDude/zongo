@@ -1,23 +1,29 @@
 import { Db, MongoClient } from "mongodb";
 import { z } from "zod";
-import { ZCollectionDefinition } from "./types/ZCollectionDefinition";
-import { ZDatabase } from "./types/ZDatabase";
-import { ZPartialDefinition } from "./types/ZPartialDefinition";
+import { CollectionDefinition } from "./types/CollectionDefinition";
+import { Database } from "./types/Database";
+import { PartialDefinition } from "./types/PartialDefinition";
 
 export function createDatabase(client: MongoClient, db: Db) {
-  return new ZDatabase(client, db);
+  return new Database(client, db);
 }
 
 export function createDefinition<
   ModelName extends string,
   Schema extends z.ZodSchema<any>
 >(name: ModelName, schema: Schema) {
-  return new ZCollectionDefinition(name, schema);
+  return new CollectionDefinition(name, schema);
 }
 
+/**
+ * Creates partial
+ *
+ * @param {Name} name
+ * @param {Schema} schema
+ */
 export function createPartial<
   Name extends string,
   Schema extends z.ZodSchema<any>
 >(name: Name, schema: Schema) {
-  return new ZPartialDefinition(name, schema);
+  return new PartialDefinition(name, schema);
 }

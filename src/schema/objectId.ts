@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ObjectId } from "mongodb";
 
-export function zObjectId() {
+export function objectId() {
   return z.instanceof(ObjectId);
 }

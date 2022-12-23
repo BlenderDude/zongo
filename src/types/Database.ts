@@ -1,56 +1,49 @@
 import { AsyncLocalStorage } from "async_hooks";
-import {
-  ClientSession,
-  Collection,
-  Db,
-  Filter,
-  MongoClient,
-  ObjectId,
-} from "mongodb";
+import * as mongo from "mongodb";
 import { BRAND, z } from "zod";
-import { ZSchemaReferenceWrapper } from "../schema/zEmbeddedSchema";
+import { ZodSchemaReferenceWrapper } from "../schema/document";
 import {
-  ZCollectionBranded,
-  ZCollectionDefinition,
-  ZCollectionModelName,
-  ZRawDocumentType,
-} from "./ZCollectionDefinition";
-import { ZDocumentReference } from "./ZDocumentReference";
-import { createZLazyDocument } from "./ZLazyDocument";
+  CollectionBranded,
+  CollectionDefinition,
+  CollectionModelName,
+  RawDocumentType,
+} from "./CollectionDefinition";
+import { DocumentReference } from "./DocumentReference";
+import { createLazyDocument } from "./LazyDocument";
 import {
-  ZPartialDefinition,
-  ZPartialName,
-  ZPartialSchema,
-} from "./ZPartialDefinition";
+  PartialDefinition,
+  PartialName,
+  PartialSchema,
+} from "./PartialDefinition";
 
 type CreateDocumentParam<
   Definitions extends DefinitionsType,
   Def extends keyof Definitions
-> = Omit<z.input<ZCollectionBranded<Definitions[Def]>>, typeof BRAND>;
+> = Omit<z.input<CollectionBranded<Definitions[Def]>>, typeof BRAND>;
 
 type DefinitionsType = {
-  [key: string]: ZCollectionDefinition<any, any>;
+  [key: string]: CollectionDefinition<any, any>;
 };
 
 type PartialsType = {
-  [key: string]: ZPartialDefinition<any, any>;
+  [key: string]: PartialDefinition<any, any>;
 };
 
 type Merge<T> = T extends infer U ? { [K in keyof U]: U[K] } : never;
 
-export class ZDatabase<
+export class Database<
   Definitions extends DefinitionsType = {},
   Partials extends PartialsType = {}
 > {
   private definitions = new Map<
     keyof Definitions,
-    ZCollectionDefinition<any, any>
+    CollectionDefinition<any, any>
   >();
 
-  private partials = new Map<keyof Partials, ZPartialDefinition<any, any>>();
+  private partials = new Map<keyof Partials, PartialDefinition<any, any>>();
 
-  private static als = new AsyncLocalStorage<ZDatabase<any, any>>();
-  private static globalInstance: ZDatabase<any, any> | undefined = undefined;
+  private static als = new AsyncLocalStorage<Database<any, any>>();
+  private static globalInstance: Database<any, any> | undefined = undefined;
 
   get definitionNames(): Array<keyof Definitions> {
     return Array.from(this.definitions.keys());
@@ -60,26 +53,26 @@ export class ZDatabase<
     return Array.from(this.partials.keys());
   }
 
-  public static setGlobalInstance(instance: ZDatabase<any, any>) {
-    ZDatabase.globalInstance = instance;
+  public static setGlobalInstance(instance: Database<any, any>) {
+    Database.globalInstance = instance;
   }
 
   public static getContextZDB() {
-    const ctxZDB = ZDatabase.als.getStore();
+    const ctxZDB = Database.als.getStore();
     if (ctxZDB) {
       return ctxZDB;
     }
     return this.globalInstance;
   }
 
-  constructor(private client: MongoClient, private db: Db) {}
+  constructor(private client: mongo.MongoClient, private db: mongo.Db) {}
 
-  addDefinition<CollectionDef extends ZCollectionDefinition<any, any>>(
+  addDefinition<CollectionDef extends CollectionDefinition<any, any>>(
     definition: CollectionDef
-  ): ZDatabase<
+  ): Database<
     Merge<
       Definitions & {
-        [key in ZCollectionModelName<CollectionDef>]: CollectionDef;
+        [key in CollectionModelName<CollectionDef>]: CollectionDef;
       }
     >,
     Partials
@@ -91,13 +84,13 @@ export class ZDatabase<
   }
 
   addDefinitions<
-    NewDefinitions extends readonly ZCollectionDefinition<any, any>[]
+    NewDefinitions extends readonly CollectionDefinition<any, any>[]
   >(
     definitions: NewDefinitions
-  ): ZDatabase<
+  ): Database<
     Merge<
       Definitions & {
-        [Definition in NewDefinitions[number] as ZCollectionModelName<Definition>]: Definition;
+        [Definition in NewDefinitions[number] as CollectionModelName<Definition>]: Definition;
       }
     >,
     Partials
@@ -108,11 +101,11 @@ export class ZDatabase<
     return this as any;
   }
 
-  addPartial<PartialDef extends ZPartialDefinition<any, any>>(
+  addPartial<PartialDef extends PartialDefinition<any, any>>(
     definition: PartialDef
-  ): ZDatabase<
+  ): Database<
     Definitions,
-    Merge<Partials & { [key in ZPartialName<PartialDef>]: PartialDef }>
+    Merge<Partials & { [key in PartialName<PartialDef>]: PartialDef }>
   > {
     definition.zdb = this;
     this.partials.set(definition.name, definition);
@@ -120,13 +113,13 @@ export class ZDatabase<
     return this as any;
   }
 
-  addPartials<NewPartials extends readonly ZPartialDefinition<any, any>[]>(
+  addPartials<NewPartials extends readonly PartialDefinition<any, any>[]>(
     definitions: NewPartials
-  ): ZDatabase<
+  ): Database<
     Definitions,
     Merge<
       Partials & {
-        [Definition in NewPartials[number] as ZPartialName<Definition>]: Definition;
+        [Definition in NewPartials[number] as PartialName<Definition>]: Definition;
       }
     >
   > {
@@ -138,7 +131,7 @@ export class ZDatabase<
 
   getCollection<DefName extends keyof Definitions>(
     defName: DefName
-  ): Collection<ZRawDocumentType<Definitions[DefName]>> {
+  ): mongo.Collection<RawDocumentType<Definitions[DefName]>> {
     const definition = this.definitions.get(defName);
     if (!definition) {
       throw new Error(`Collection ${String(defName)} not found`);
@@ -155,7 +148,7 @@ export class ZDatabase<
     if (!definition) {
       throw new Error(`Collection ${String(def)} not found`);
     }
-    type Result = z.output<ZCollectionBranded<Definition>>;
+    type Result = z.output<CollectionBranded<Definition>>;
 
     const result = (await definition.schema.parseAsync(data)) as Result;
     const resolvedData = await this.getRawDocument<Result>(result);
@@ -172,7 +165,7 @@ export class ZDatabase<
     if (!definition) {
       throw new Error(`Collection ${String(def)} not found`);
     }
-    type Result = z.output<ZCollectionBranded<Definition>>;
+    type Result = z.output<CollectionBranded<Definition>>;
 
     const result = (await definition.schema.parseAsync(data)) as Result;
     const resolvedData = await this.getRawDocument<Result>(result);
@@ -185,15 +178,18 @@ export class ZDatabase<
 
   async update<Def extends keyof Definitions>(
     def: Def,
-    _id: ObjectId,
+    _id: mongo.ObjectId,
     data:
       | Partial<CreateDocumentParam<Definitions, Def>>
       | ((
-          current: z.output<ZCollectionBranded<Definitions[Def]>>
+          current: z.output<CollectionBranded<Definitions[Def]>>
         ) =>
           | Promise<CreateDocumentParam<Definitions, Def>>
           | CreateDocumentParam<Definitions, Def>),
-    options?: Partial<{ updateReferences: boolean; session: ClientSession }>
+    options?: Partial<{
+      updateReferences: boolean;
+      session: mongo.ClientSession;
+    }>
   ) {
     const computedOptions = Object.assign(
       {
@@ -206,7 +202,7 @@ export class ZDatabase<
     if (!definition) {
       throw new Error(`Collection ${String(def)} not found`);
     }
-    type Result = z.output<ZCollectionBranded<Definition>>;
+    type Result = z.output<CollectionBranded<Definition>>;
 
     const session = computedOptions.session ?? this.client.startSession();
 
@@ -215,7 +211,7 @@ export class ZDatabase<
         session.startTransaction();
       }
 
-      const collection = this.getCollection(def) as Collection<any>;
+      const collection = this.getCollection(def) as mongo.Collection<any>;
       const current = await collection.findOne(
         {
           _id,
@@ -263,12 +259,12 @@ export class ZDatabase<
     }
   }
 
-  findOneLazy<Def extends keyof Definitions>(def: Def, id: ObjectId) {
+  findOneLazy<Def extends keyof Definitions>(def: Def, id: mongo.ObjectId) {
     const definition = this.definitions.get(def);
     if (!definition) {
       throw new Error(`Collection ${String(def)} not found`);
     }
-    return createZLazyDocument(
+    return createLazyDocument(
       id,
       definition as Definitions[Def],
       this.getCollection(def)
@@ -278,7 +274,7 @@ export class ZDatabase<
   async getRawDocument<Input>(
     input: Input
   ): Promise<ResolveZReferences<Input>> {
-    if (input instanceof ZDocumentReference) {
+    if (input instanceof DocumentReference) {
       return await this.getRawDocument(input.getExisting());
     }
     if (Array.isArray(input)) {
@@ -305,9 +301,9 @@ export class ZDatabase<
     docs:
       | Doc[]
       | ((
-          collection: Collection<ZRawDocumentType<Definitions[DefName]>>
+          collection: mongo.Collection<RawDocumentType<Definitions[DefName]>>
         ) => Doc[] | Promise<Doc[]>)
-  ): Promise<z.output<ZCollectionBranded<Definitions[DefName]>>[]> {
+  ): Promise<z.output<CollectionBranded<Definitions[DefName]>>[]> {
     let resolvedDocs: Doc[];
     if (typeof docs === "function") {
       resolvedDocs = await docs(this.getCollection(defName));
@@ -329,7 +325,7 @@ export class ZDatabase<
       | Doc
       | null
       | ((
-          collection: Collection<ZRawDocumentType<Definitions[DefName]>>
+          collection: mongo.Collection<RawDocumentType<Definitions[DefName]>>
         ) => Doc | Promise<Doc> | null)
   ) {
     let finalDoc: Doc | null;
@@ -347,13 +343,13 @@ export class ZDatabase<
       throw new Error(`Collection ${String(defName)} not found`);
     }
     return definition.schema.parseAsync(finalDoc) as Promise<
-      z.output<ZCollectionBranded<Definitions[DefName]>>
+      z.output<CollectionBranded<Definitions[DefName]>>
     >;
   }
 
   async runInContext<T>(fn: () => Promise<T>): Promise<T> {
     return new Promise((resolve, reject) => {
-      ZDatabase.als.run(this as any, async () => {
+      Database.als.run(this as any, async () => {
         try {
           resolve(await fn());
         } catch (e) {
@@ -374,7 +370,7 @@ export class ZDatabase<
 
     for (const [traversedDefName, definition] of this.definitions.entries()) {
       function traverseSchema(schema: unknown, pathSoFar: string[]) {
-        if (schema instanceof ZSchemaReferenceWrapper) {
+        if (schema instanceof ZodSchemaReferenceWrapper) {
           if (schema.definition.collection === defName) {
             const location = locations.get(traversedDefName) ?? [];
             location.push({
@@ -452,11 +448,11 @@ export class ZDatabase<
 
   async updateReferences<DefName extends keyof Definitions>(
     defName: DefName,
-    _id: ObjectId,
-    options?: Partial<{ session: ClientSession }>
+    _id: mongo.ObjectId,
+    options?: Partial<{ session: mongo.ClientSession }>
   ) {
     const computedOptions = Object.assign({}, options);
-    const collection = this.getCollection(defName) as Collection<any>;
+    const collection = this.getCollection(defName) as mongo.Collection<any>;
     const document = await collection.findOne({
       _id,
     });
@@ -476,8 +472,10 @@ export class ZDatabase<
       const references = await this.getReferences(defName);
       for (const [refDefName, collectionRefs] of references.entries()) {
         for (const ref of collectionRefs) {
-          const collection = this.getCollection(refDefName) as Collection<any>;
-          const _id = resolvedDocument._id as ObjectId;
+          const collection = this.getCollection(
+            refDefName
+          ) as mongo.Collection<any>;
+          const _id = resolvedDocument._id as mongo.ObjectId;
           const idPath = `${ref.path}._id`;
           const updateKeys: Record<string, any> = {};
           for (const key of Object.keys(ref.mask ?? resolvedDocument)) {
@@ -522,13 +520,13 @@ export class ZDatabase<
   }
 }
 
-export type ResolveZReferences<T> = T extends ZDocumentReference<
+export type ResolveZReferences<T> = T extends DocumentReference<
   any,
   any,
   infer Existing
 >
   ? Existing
-  : T extends ObjectId | Buffer | Date
+  : T extends mongo.ObjectId | Buffer | Date
   ? T
   : T extends Array<infer U>
   ? Array<ResolveZReferences<U>>

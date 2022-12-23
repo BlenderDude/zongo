@@ -1,25 +1,24 @@
-import { ObjectId } from "mongodb";
+import * as mongo from "mongodb";
 import { z, ZodRawShape } from "zod";
 import {
-  ZCollectionDefinition,
-  ZCollectionBranded,
-} from "./ZCollectionDefinition";
+  CollectionDefinition,
+  CollectionBranded,
+} from "./CollectionDefinition";
 
-export type ZLazyDocument<Definition extends ZCollectionDefinition<any, any>> =
-  {
-    [K in keyof z.output<ZCollectionBranded<Definition>>]: Promise<
-      z.output<ZCollectionBranded<Definition>>[K]
-    >;
-  };
+export type LazyDocument<Definition extends CollectionDefinition<any, any>> = {
+  [K in keyof z.output<CollectionBranded<Definition>>]: Promise<
+    z.output<CollectionBranded<Definition>>[K]
+  >;
+};
 
-export function createZLazyDocument<
-  Definition extends ZCollectionDefinition<any, any>
+export function createLazyDocument<
+  Definition extends CollectionDefinition<any, any>
 >(
-  _id: ObjectId,
+  _id: mongo.ObjectId,
   definition: Definition,
   existingData?: Record<string, any>
-): ZLazyDocument<Definition> {
-  type FullData = z.infer<ZCollectionBranded<Definition>>;
+): LazyDocument<Definition> {
+  type FullData = z.infer<CollectionBranded<Definition>>;
 
   let pendingRead: Promise<Partial<FullData>> | null = null;
   const promises = new Map<keyof FullData, Promise<Partial<FullData>>>();

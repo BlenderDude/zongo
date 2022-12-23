@@ -1,19 +1,3 @@
-export { zObjectId } from "./schema/zObjectId";
-export { zEmbeddedSchema } from "./schema/zEmbeddedSchema";
-export { zPartial } from "./schema/zPartial";
-export {
-  ZCollectionDefinition,
-  ZCollectionBranded,
-  ZCollectionUnbranded,
-  ZCollectionModelName,
-} from "./types/ZCollectionDefinition";
-export {
-  ZPartialDefinition,
-  ZPartialSchema,
-  ZPartialName,
-} from "./types/ZPartialDefinition";
-export { ZLazyDocument, createZLazyDocument } from "./types/ZLazyDocument";
-export { ZLazyDocumentManager } from "./types/ZLazyDocumentManager";
-export { ZDatabase } from "./types/ZDatabase";
-export { ZDocumentReference } from "./types/ZDocumentReference";
+export * as schema from "./schema/_index";
+export * as types from "./types/_index";
 export * from "./create";

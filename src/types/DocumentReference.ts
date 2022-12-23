@@ -1,20 +1,20 @@
-import { ObjectId } from "mongodb";
+import * as mongo from "mongodb";
 import { z } from "zod";
 import {
-  ZCollectionBranded,
-  ZCollectionDefinition,
-} from "./ZCollectionDefinition";
-import { createZLazyDocument, ZLazyDocument } from "./ZLazyDocument";
+  CollectionBranded,
+  CollectionDefinition,
+} from "./CollectionDefinition";
+import { createLazyDocument, LazyDocument } from "./LazyDocument";
 
-export class ZDocumentReference<
-  Definition extends ZCollectionDefinition<string, z.ZodSchema>,
+export class DocumentReference<
+  Definition extends CollectionDefinition<string, z.ZodSchema>,
   Mask extends Record<string, true | undefined> | undefined = undefined,
   ExistingData extends Record<string, any> = {}
 > {
   private existingData: ExistingData;
 
   constructor(
-    public _id: ObjectId,
+    public _id: mongo.ObjectId,
     public definition: Definition,
     existingData: ExistingData,
     public mask: Mask
@@ -25,11 +25,11 @@ export class ZDocumentReference<
     };
   }
 
-  resolve(): ZLazyDocument<Definition> {
-    return createZLazyDocument(this._id, this.definition, this.existingData);
+  resolve(): LazyDocument<Definition> {
+    return createLazyDocument(this._id, this.definition, this.existingData);
   }
 
-  async resolveFull(): Promise<z.output<ZCollectionBranded<Definition>>> {
+  async resolveFull(): Promise<z.output<CollectionBranded<Definition>>> {
     const zdb = this.definition.zdb;
 
     const modelName = this.definition.modelName;

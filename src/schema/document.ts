@@ -1,21 +1,21 @@
-import { ObjectId } from "mongodb";
-import { AsyncParseReturnType, OK, ParseInput, z, ZodType } from "zod";
+import * as mongo from "mongodb";
+import { OK, ParseInput, SyncParseReturnType, z, ZodType } from "zod";
 import {
-  ZCollectionDefinition,
-  ZCollectionUnbranded,
-} from "../types/ZCollectionDefinition";
-import { ResolveZReferences } from "../types/ZDatabase";
-import { ZDocumentReference } from "../types/ZDocumentReference";
-import { createZLazyDocument } from "../zongo";
+  CollectionDefinition,
+  CollectionUnbranded,
+} from "../types/CollectionDefinition";
+import { ResolveZReferences } from "../types/Database";
+import { DocumentReference } from "../types/DocumentReference";
+import { createLazyDocument } from "../types/LazyDocument";
 
-export class ZSchemaReferenceWrapper<
-  Definition extends ZCollectionDefinition<any, z.ZodSchema>,
+export class ZodSchemaReferenceWrapper<
+  Definition extends CollectionDefinition<any, z.ZodSchema>,
   Mask extends Record<string, true | undefined> | undefined = undefined,
   ExistingData extends Record<string, any> = {}
 > extends ZodType<
-  ZDocumentReference<Definition, Mask, ExistingData>,
+  DocumentReference<Definition, Mask, ExistingData>,
   {},
-  ObjectId | { _id: ObjectId } | ZDocumentReference<any, any, any>
+  mongo.ObjectId | { _id: mongo.ObjectId } | DocumentReference<any, any, any>
 > {
   constructor(public definition: Definition, public mask: Mask) {
     super({});
@@ -23,7 +23,7 @@ export class ZSchemaReferenceWrapper<
 
   async _parse(
     input: ParseInput
-  ): AsyncParseReturnType<ZDocumentReference<any, any, any>> {
+  ): Promise<SyncParseReturnType<DocumentReference<any, any, any>>> {
     const { ctx } = this._processInputParams(input);
     if (!ctx.common.async) {
       throw new Error(
@@ -31,16 +31,16 @@ export class ZSchemaReferenceWrapper<
       );
     }
     const data = ctx.data as
-      | ObjectId
-      | { _id: ObjectId }
-      | ZDocumentReference<any, any, any>;
+      | mongo.ObjectId
+      | { _id: mongo.ObjectId }
+      | DocumentReference<any, any, any>;
     if (this.mask !== undefined) {
       const mask = this.mask;
       const requiredKeys = new Set<string>(
         Object.keys(mask).filter((k) => mask[k])
       );
-      if (data instanceof ObjectId) {
-        const lazyDocument = createZLazyDocument(
+      if (data instanceof mongo.ObjectId) {
+        const lazyDocument = createLazyDocument(
           data,
           this.definition,
           undefined
@@ -56,11 +56,11 @@ export class ZSchemaReferenceWrapper<
         }
         await Promise.all(promises);
         return OK(
-          new ZDocumentReference(data, this.definition, requiredData, this.mask)
+          new DocumentReference(data, this.definition, requiredData, this.mask)
         );
       }
       let existingData: Record<string, any>;
-      if (data instanceof ZDocumentReference) {
+      if (data instanceof DocumentReference) {
         existingData = data.getExisting();
       } else {
         existingData = data;
@@ -70,7 +70,7 @@ export class ZSchemaReferenceWrapper<
         requiredData[key] = existingData[key];
       }
       return OK(
-        new ZDocumentReference(
+        new DocumentReference(
           data._id,
           this.definition,
           requiredData,
@@ -78,8 +78,8 @@ export class ZSchemaReferenceWrapper<
         )
       );
     }
-    let _id: ObjectId;
-    if (data instanceof ObjectId) {
+    let _id: mongo.ObjectId;
+    if (data instanceof mongo.ObjectId) {
       _id = data;
     } else {
       _id = data._id;
@@ -89,9 +89,7 @@ export class ZSchemaReferenceWrapper<
       .getCollection(this.definition.modelName)
       .findOne({ _id });
 
-    return OK(
-      new ZDocumentReference(_id, this.definition, document, this.mask)
-    );
+    return OK(new DocumentReference(_id, this.definition, document, this.mask));
   }
 }
 
@@ -103,18 +101,18 @@ type DistributiveSelectivePick<T, K extends keyof T> = T extends unknown
     }
   : never;
 
-export const zEmbeddedSchema = {
-  full: <Definition extends ZCollectionDefinition<any, z.ZodSchema>>(
+export const document = {
+  full: <Definition extends CollectionDefinition<any, z.ZodSchema>>(
     definition: Definition
   ) => {
-    return new ZSchemaReferenceWrapper<
+    return new ZodSchemaReferenceWrapper<
       Definition,
       undefined,
       ResolveZReferences<z.output<Definition["schema"]>>
     >(definition, undefined);
   },
   partial: <
-    Definition extends ZCollectionDefinition<any, z.ZodSchema>,
+    Definition extends CollectionDefinition<any, z.ZodSchema>,
     Mask extends {
       [key in Exclude<
         UnionOfKeys<z.output<Definition["schema"]>>,
@@ -126,20 +124,21 @@ export const zEmbeddedSchema = {
     mask: Mask
   ) => {
     type MaskedOutput = DistributiveSelectivePick<
-      z.output<ZCollectionUnbranded<Definition>>,
+      z.output<CollectionUnbranded<Definition>>,
       keyof Mask | "_id"
     >;
-    return new ZSchemaReferenceWrapper<Definition, Mask, MaskedOutput>(
+    return new ZodSchemaReferenceWrapper<Definition, Mask, MaskedOutput>(
       definition,
       mask
     );
   },
-  ref: <Definition extends ZCollectionDefinition<any, z.ZodSchema>>(
+  ref: <Definition extends CollectionDefinition<any, z.ZodSchema>>(
     definition: Definition
   ) => {
-    return new ZSchemaReferenceWrapper<Definition, {}, { _id: ObjectId }>(
-      definition,
-      {}
-    );
+    return new ZodSchemaReferenceWrapper<
+      Definition,
+      {},
+      { _id: mongo.ObjectId }
+    >(definition, {});
   },
 };

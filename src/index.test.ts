@@ -8,7 +8,7 @@ function expectDocumentsToMatch(actual: any, expected: any) {
       if (value instanceof ObjectId) {
         return value.toHexString();
       }
-      if (value instanceof zg.ZDocumentReference) {
+      if (value instanceof zg.types.DocumentReference) {
         return `ZDocumentReference(${value.definition.modelName},${value._id})`;
       }
       return value;
@@ -26,21 +26,21 @@ function createZdb(client: MongoClient, db: Db) {
       updatedAt: z.date().default(() => new Date()),
     })
   );
-  const photoDefinition = new zg.ZCollectionDefinition(
+  const photoDefinition = zg.createDefinition(
     "Photo",
     z.object({
-      _id: zg.zObjectId(),
+      _id: zg.schema.objectId(),
       url: z.string(),
       description: z.string(),
-      timestamps: zg.zPartial(Timestamps),
+      timestamps: zg.schema.partial(Timestamps),
     })
   );
-  const userDefinition = new zg.ZCollectionDefinition(
+  const userDefinition = zg.createDefinition(
     "User",
     z.object({
-      _id: zg.zObjectId(),
+      _id: zg.schema.objectId(),
       name: z.string(),
-      photo: zg.zEmbeddedSchema
+      photo: zg.schema.document
         .partial(photoDefinition, {
           url: true,
         })
@@ -50,43 +50,43 @@ function createZdb(client: MongoClient, db: Db) {
   const AuditEntry = zg.createPartial(
     "AuditEntry",
     z.object({
-      user: zg.zEmbeddedSchema.partial(userDefinition, {
+      user: zg.schema.document.partial(userDefinition, {
         name: true,
       }),
       action: z.string(),
     })
   );
-  const postDefinition = new zg.ZCollectionDefinition(
+  const postDefinition = zg.createDefinition(
     "Post",
     z.object({
-      _id: zg.zObjectId(),
+      _id: zg.schema.objectId(),
       name: z.string(),
-      author: zg.zEmbeddedSchema.full(userDefinition),
-      photos: z.array(zg.zEmbeddedSchema.full(photoDefinition)),
-      audit: z.array(zg.zPartial(AuditEntry)),
+      author: zg.schema.document.full(userDefinition),
+      photos: z.array(zg.schema.document.full(photoDefinition)),
+      audit: z.array(zg.schema.partial(AuditEntry)),
     })
   );
-  const discriminatedDefinition = new zg.ZCollectionDefinition(
+  const discriminatedDefinition = zg.createDefinition(
     "DiscriminatedUnion",
     z.discriminatedUnion("_type", [
       z.object({
-        _id: zg.zObjectId(),
+        _id: zg.schema.objectId(),
         _type: z.literal("a"),
         a: z.string(),
       }),
       z.object({
-        _id: zg.zObjectId(),
+        _id: zg.schema.objectId(),
         _type: z.literal("b"),
         b: z.string(),
       }),
     ])
   );
-  const refToDistDefinition = new zg.ZCollectionDefinition(
+  const refToDistDefinition = zg.createDefinition(
     "RefToDiscriminatedUnion",
     z.object({
-      _id: zg.zObjectId(),
-      testRef: zg.zEmbeddedSchema.full(discriminatedDefinition),
-      testPartialRef: zg.zEmbeddedSchema.partial(discriminatedDefinition, {
+      _id: zg.schema.objectId(),
+      testRef: zg.schema.document.full(discriminatedDefinition),
+      testPartialRef: zg.schema.document.partial(discriminatedDefinition, {
         _type: true,
         a: true,
         b: true,
@@ -94,7 +94,8 @@ function createZdb(client: MongoClient, db: Db) {
     })
   );
 
-  const zdb = new zg.ZDatabase(client, db)
+  const zdb = zg
+    .createDatabase(client, db)
     .addDefinition(userDefinition)
     .addDefinition(postDefinition)
     .addDefinitions([
@@ -369,7 +370,7 @@ describe("create", () => {
       ],
     };
     const post = await zdb.create("Post", expectedPost);
-    expect(post.audit[0].user).toBeInstanceOf(zg.ZDocumentReference);
+    expect(post.audit[0].user).toBeInstanceOf(zg.types.DocumentReference);
     expect(post.audit[0].user.getExisting()._id).toEqual(user._id);
   });
 });
