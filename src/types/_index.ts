@@ -11,5 +11,5 @@ export {
 } from "./PartialDefinition";
 export { LazyDocument, createLazyDocument } from "./LazyDocument";
 export { LazyDocumentManager } from "./LazyDocumentManager";
-export { Database, HydratedDocuments } from "./Database";
+export { Database, HydratedDocuments, InputDocuments } from "./Database";
 export { DocumentReference } from "./DocumentReference";

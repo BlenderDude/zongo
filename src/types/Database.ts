@@ -519,6 +519,10 @@ export type HydratedDocuments<DB extends Database<any, any>> = {
   [K in keyof DB["definitions"]]: CollectionBranded<DB["definitions"][K]>;
 };
 
+export type InputDocuments<DB extends Database<any, any>> = {
+  [K in keyof DB["definitions"]]: z.input<DB["definitions"][K]["schema"]>;
+};
+
 export type ResolveZReferences<T> = T extends DocumentReference<
   any,
   any,
