@@ -35,22 +35,18 @@ export class Database<
   Definitions extends DefinitionsType = {},
   Partials extends PartialsType = {}
 > {
-  private definitions = new Map<
-    keyof Definitions,
-    CollectionDefinition<any, any>
-  >();
-
-  private partials = new Map<keyof Partials, PartialDefinition<any, any>>();
+  public definitions: Definitions = {} as any;
+  public partials: Partials = {} as any;
 
   private static als = new AsyncLocalStorage<Database<any, any>>();
   private static globalInstance: Database<any, any> | undefined = undefined;
 
   get definitionNames(): Array<keyof Definitions> {
-    return Array.from(this.definitions.keys());
+    return Object.keys(this.definitions);
   }
 
   get partialNames(): Array<keyof Partials> {
-    return Array.from(this.partials.keys());
+    return Object.keys(this.partials);
   }
 
   public static setGlobalInstance(instance: Database<any, any>) {
@@ -78,7 +74,7 @@ export class Database<
     Partials
   > {
     definition.zdb = this;
-    this.definitions.set(definition.modelName, definition);
+    (this.definitions as any)[definition.modelName] = definition;
 
     return this as any;
   }
@@ -108,7 +104,7 @@ export class Database<
     Merge<Partials & { [key in PartialName<PartialDef>]: PartialDef }>
   > {
     definition.zdb = this;
-    this.partials.set(definition.name, definition);
+    (this.partials as any)[definition.name] = definition;
 
     return this as any;
   }
@@ -132,23 +128,22 @@ export class Database<
   getCollection<DefName extends keyof Definitions>(
     defName: DefName
   ): mongo.Collection<RawDocumentType<Definitions[DefName]>> {
-    const definition = this.definitions.get(defName);
+    const definition = this.definitions[defName];
     if (!definition) {
       throw new Error(`Collection ${String(defName)} not found`);
     }
     return this.db.collection(definition.modelName);
   }
 
-  async create<Def extends keyof Definitions>(
-    def: Def,
-    data: CreateDocumentParam<Definitions, Def>
+  async create<DefName extends keyof Definitions>(
+    def: DefName,
+    data: CreateDocumentParam<Definitions, DefName>
   ) {
-    type Definition = Definitions[Def];
-    const definition = this.definitions.get(def) as Definition | undefined;
+    const definition = this.definitions[def];
     if (!definition) {
       throw new Error(`Collection ${String(def)} not found`);
     }
-    type Result = z.output<CollectionBranded<Definition>>;
+    type Result = z.output<CollectionBranded<typeof definition>>;
 
     const result = (await definition.schema.parseAsync(data)) as Result;
     const resolvedData = await this.getRawDocument<Result>(result);
@@ -160,12 +155,11 @@ export class Database<
     def: Def,
     data: CreateDocumentParam<Definitions, Def>
   ) {
-    type Definition = Definitions[Def];
-    const definition = this.definitions.get(def) as Definition | undefined;
+    const definition = this.definitions[def];
     if (!definition) {
       throw new Error(`Collection ${String(def)} not found`);
     }
-    type Result = z.output<CollectionBranded<Definition>>;
+    type Result = z.output<CollectionBranded<typeof definition>>;
 
     const result = (await definition.schema.parseAsync(data)) as Result;
     const resolvedData = await this.getRawDocument<Result>(result);
@@ -197,12 +191,11 @@ export class Database<
       },
       options ?? {}
     );
-    type Definition = Definitions[Def];
-    const definition = this.definitions.get(def) as Definition | undefined;
+    const definition = this.definitions[def];
     if (!definition) {
       throw new Error(`Collection ${String(def)} not found`);
     }
-    type Result = z.output<CollectionBranded<Definition>>;
+    type Result = z.output<CollectionBranded<typeof definition>>;
 
     const session = computedOptions.session ?? this.client.startSession();
 
@@ -260,7 +253,7 @@ export class Database<
   }
 
   findOneLazy<Def extends keyof Definitions>(def: Def, id: mongo.ObjectId) {
-    const definition = this.definitions.get(def);
+    const definition = this.definitions[def];
     if (!definition) {
       throw new Error(`Collection ${String(def)} not found`);
     }
@@ -310,7 +303,7 @@ export class Database<
     } else {
       resolvedDocs = docs;
     }
-    const definition = this.definitions.get(defName) as Definitions[DefName];
+    const definition = this.definitions[defName];
     if (!definition) {
       throw new Error(`Collection ${String(defName)} not found`);
     }
@@ -338,7 +331,7 @@ export class Database<
       return null;
     }
 
-    const definition = this.definitions.get(defName) as Definitions[DefName];
+    const definition = this.definitions[defName];
     if (!definition) {
       throw new Error(`Collection ${String(defName)} not found`);
     }
@@ -368,7 +361,9 @@ export class Database<
       }>
     >();
 
-    for (const [traversedDefName, definition] of this.definitions.entries()) {
+    for (const [traversedDefName, definition] of Object.entries(
+      this.definitions
+    )) {
       function traverseSchema(schema: unknown, pathSoFar: string[]) {
         if (schema instanceof ZodSchemaReferenceWrapper) {
           if (schema.definition.collection === defName) {
@@ -459,7 +454,7 @@ export class Database<
     if (!document) {
       throw new Error(`Document ${String(_id)} not found`);
     }
-    const definition = this.definitions.get(defName) as Definitions[DefName];
+    const definition = this.definitions[defName];
     const resolvedDocument = await this.getRawDocument(
       await definition.schema.parseAsync(document)
     );
