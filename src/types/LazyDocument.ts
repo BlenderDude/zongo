@@ -52,7 +52,7 @@ export function createLazyDocument<
         for (const promise of promises.values()) {
           Object.assign(docSoFar, await promise);
         }
-        for (const key of Object.keys(docSoFar)) {
+        for (const key of promises.keys()) {
           if (!(key in docSoFar)) {
             docSoFar[key] = undefined;
           }
