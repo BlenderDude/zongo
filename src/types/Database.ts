@@ -516,7 +516,9 @@ export class Database<
 }
 
 export type HydratedDocuments<DB extends Database<any, any>> = {
-  [K in keyof DB["definitions"]]: z.output<DB["definitions"][K]["schema"]>;
+  [K in keyof DB["definitions"]]: z.output<
+    CollectionBranded<DB["definitions"][K]["schema"]>
+  >;
 };
 
 export type InputDocuments<DB extends Database<any, any>> = {
