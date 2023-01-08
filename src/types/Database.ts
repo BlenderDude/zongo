@@ -515,6 +515,10 @@ export class Database<
   }
 }
 
+export type HydratedDocuments<DB extends Database<any, any>> = {
+  [K in keyof DB["definitions"]]: CollectionBranded<DB["definitions"][K]>;
+};
+
 export type ResolveZReferences<T> = T extends DocumentReference<
   any,
   any,
