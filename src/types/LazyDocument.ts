@@ -49,8 +49,13 @@ export function createLazyDocument<
     if (promises.has(key)) {
       if (validate) {
         const docSoFar: any = {};
-        for (const [_, promise] of promises) {
+        for (const promise of promises.values()) {
           Object.assign(docSoFar, await promise);
+        }
+        for (const key of Object.keys(docSoFar)) {
+          if (!(key in docSoFar)) {
+            docSoFar[key] = undefined;
+          }
         }
         const schemaShape = await schemaShapePromise;
         const schema = z
